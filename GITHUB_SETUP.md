@@ -1,40 +1,32 @@
 # GitHub Setup Instructions
 
-Your Voice AI RPG Game project has been initialized with Git and is ready to be uploaded to GitHub.
+✅ **Project Successfully Uploaded to GitHub!**
 
-## Steps to create and upload to GitHub:
+**Repository URL:** https://github.com/CY8ERPUNK1984/Voice-AI-RPG-Game
 
-### Option 1: Using GitHub Web Interface (Recommended)
+## Current Status:
+- ✅ Repository created and configured
+- ✅ Local Git repository connected to GitHub
+- ✅ Initial project code uploaded
+- ✅ GitHub credentials configured in backend/.env
 
-1. **Go to GitHub.com** and sign in to your account
+## For Future Updates:
 
-2. **Create a new repository:**
-   - Click the "+" icon in the top right corner
-   - Select "New repository"
-   - Repository name: `voice-ai-rpg-game`
-   - Description: `Interactive voice-controlled role-playing game built with React and Node.js`
-   - Choose Public or Private (your preference)
-   - **DO NOT** initialize with README, .gitignore, or license (we already have these)
-   - Click "Create repository"
-
-3. **Connect your local repository to GitHub:**
-   ```bash
-   git remote add origin https://github.com/YOUR_USERNAME/voice-ai-rpg-game.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-### Option 2: Using GitHub CLI (if you have it installed)
-
+### Push Changes to GitHub:
 ```bash
-# Install GitHub CLI if you haven't already
-# brew install gh (on macOS)
+# Add all changes
+git add .
 
-# Authenticate with GitHub
-gh auth login
+# Commit changes with a message
+git commit -m "Your commit message"
 
-# Create repository and push
-gh repo create voice-ai-rpg-game --public --source=. --remote=origin --push
+# Push to GitHub
+git push origin main
+```
+
+### Pull Latest Changes:
+```bash
+git pull origin main
 ```
 
 ## Repository Information
