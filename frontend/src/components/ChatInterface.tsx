@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChatInterfaceProps } from '../types';
 import Message from './Message';
+import { VoiceInput } from './VoiceInput';
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
   messages, 
@@ -8,6 +9,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   isLoading 
 }) => {
   const [inputText, setInputText] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -35,6 +37,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       e.preventDefault();
       handleSubmit(e);
     }
+  };
+
+  const handleVoiceInput = (text: string) => {
+    setInputText(text);
+  };
+
+  const handleRecordingStateChange = (recording: boolean) => {
+    setIsRecording(recording);
   };
 
   return (
@@ -117,6 +127,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </form>
         <div className="mt-2 text-xs text-gray-500">
           Press Enter to send, Shift+Enter for new line
+        </div>
+        
+        {/* Voice Input Section */}
+        <div className="mt-4 pt-4 border-t border-gray-700">
+          <div className="flex flex-col items-center space-y-2">
+            <div className="text-sm text-gray-400 mb-2">Voice Input</div>
+            <VoiceInput
+              onVoiceInput={handleVoiceInput}
+              isRecording={isRecording}
+              onRecordingStateChange={handleRecordingStateChange}
+            />
+          </div>
         </div>
       </div>
     </div>

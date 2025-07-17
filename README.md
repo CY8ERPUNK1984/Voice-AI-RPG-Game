@@ -1,6 +1,6 @@
 # Voice AI RPG Game
 
-An interactive voice-controlled role-playing game built with React and Node.js.
+An interactive voice-controlled role-playing game that combines AI-powered storytelling with real-time voice interaction. Built with React frontend and Node.js backend, featuring speech-to-text input, AI game master responses, and text-to-speech output for a fully immersive RPG experience.
 
 ## Project Structure
 
@@ -37,24 +37,24 @@ An interactive voice-controlled role-playing game built with React and Node.js.
 ## Technology Stack
 
 ### Frontend
-- **React 18** - UI framework
-- **TypeScript** - Type safety
-- **Vite** - Build tool and dev server
-- **Tailwind CSS** - Styling
-- **Zustand** - State management
-- **Socket.io Client** - Real-time communication
+- **React 18** - UI framework with TypeScript
+- **Vite** - Build tool and development server
+- **Tailwind CSS** - Utility-first styling framework
+- **Zustand** - Lightweight state management
+- **Socket.io Client** - Real-time WebSocket communication
+- **Vitest** - Testing framework with jsdom environment
 
 ### Backend
-- **Node.js** - Runtime environment
-- **Express** - Web framework
-- **TypeScript** - Type safety
-- **Socket.io** - WebSocket server
-- **Axios** - HTTP client for AI services
+- **Node.js** - Runtime environment with TypeScript
+- **Express** - Web framework for REST API
+- **Socket.io** - WebSocket server for real-time communication
+- **tsx** - TypeScript execution for development
+- **Vitest** - Testing framework
 
-### AI Services
+### AI Services Integration
 - **ASR**: Web Speech API + OpenAI Whisper (fallback)
-- **LLM**: OpenAI GPT-4 or Claude-3
-- **TTS**: Web Speech API + OpenAI TTS (premium)
+- **LLM**: OpenAI GPT-4 or Claude-3 for game master responses
+- **TTS**: Web Speech API + OpenAI TTS (premium option)
 
 ## Getting Started
 
@@ -161,6 +161,20 @@ npm run build
 - Comprehensive error handling with fallback messages and graceful degradation
 - Automatic context updates based on player actions and AI responses
 - WebSocket LLM integration thoroughly tested with mock services and event verification
+
+✅ **Task 6.1 Complete**: Voice input (ASR) with Web Speech API implemented
+- WebSpeechASR service fully implemented with Web Speech API integration
+- VoiceInput React component with recording controls and visual feedback
+- Real-time speech recognition with error handling and browser compatibility checks
+- Comprehensive unit tests for both ASR service and VoiceInput component
+- Visual recording indicators and processing states for better UX
+- Automatic fallback messaging for unsupported browsers
+
+🔄 **Task 6.2 In Progress**: Fallback ASR with Whisper API
+- WhisperASR class implementation for OpenAI Whisper integration
+- Automatic switching between Web Speech API and Whisper
+- Audio file handling and backend processing
+- Enhanced error handling with user notifications
 
 ## WebSocket API
 

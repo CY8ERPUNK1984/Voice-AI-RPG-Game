@@ -115,3 +115,13 @@ export interface GameResponse {
   message: Message;
   audioUrl?: string;
 }
+
+// ASR Service Interface
+export interface ASRService {
+  transcribeAudio(audioBlob: Blob): Promise<string>;
+  isAvailable(): boolean;
+  startRecording(): Promise<void>;
+  stopRecording(): Promise<string>;
+  onResult?: (result: string) => void;
+  onError?: (error: Error) => void;
+}
