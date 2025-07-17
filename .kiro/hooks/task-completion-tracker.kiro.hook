@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Task Completion Tracker",
+  "description": "Monitors task completion files and automatically starts the next task in sequence when the current task is marked as complete",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.completed.json",
+      "**/*.task.json",
+      "**/tasks/*.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "I notice a task has been completed. Let me analyze the current task status and help you start the next task in sequence:\n\n1. Review the completed task file to understand what was accomplished\n2. Check the task queue to identify the next pending task\n3. Prepare the environment for the next task (if needed)\n4. Provide a summary of the completed task\n5. Give instructions for starting the next task\n6. Update any relevant task tracking files\n\nWhat would you like me to do to help you transition to the next task?"
+  }
+}

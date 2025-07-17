@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "GitHub Project Upload",
+  "description": "Automatically uploads the project to GitHub repository when any project files are modified, using the GITHUB_TOKEN stored in backend/.env",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Upload this project to GitHub using the GITHUB_TOKEN from backend/.env. Check if a repository exists, create one if needed, add all files, commit changes, and push to the remote repository. Handle authentication using the token from the environment file."
+  }
+}

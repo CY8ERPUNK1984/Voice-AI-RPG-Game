@@ -1,0 +1,28 @@
+{
+  "enabled": true,
+  "name": "Documentation Sync",
+  "description": "Monitors TypeScript source files, configuration files, and package files for changes and automatically updates project documentation in README.md",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "backend/src/**/*.ts",
+      "frontend/src/**/*.ts",
+      "backend/src/**/*.tsx",
+      "frontend/src/**/*.tsx",
+      "backend/package.json",
+      "frontend/package.json",
+      "package.json",
+      "backend/tsconfig.json",
+      "frontend/tsconfig.json",
+      "frontend/vite.config.ts",
+      "frontend/tailwind.config.js",
+      "backend/src/data/*.json",
+      "frontend/src/data/*.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Source code files have been modified in this TypeScript Voice AI RPG project. Please review the changes and update the README.md file to reflect any new features, API changes, component updates, or architectural modifications. Focus on keeping the documentation accurate and helpful for developers working on this voice-controlled RPG game with React frontend and Node.js backend."
+  }
+}

@@ -22,6 +22,7 @@ export interface Message {
     processingTime?: number;
     confidence?: number;
     tokens?: number;
+    error?: boolean;
   };
   timestamp: Date;
 }

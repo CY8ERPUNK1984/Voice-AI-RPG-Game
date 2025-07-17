@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export class StoryService {
-  private stories: Story[];
+  private stories: Story[] = [];
   private dataPath: string;
 
   constructor() {
@@ -17,12 +17,20 @@ export class StoryService {
       const data = fs.readFileSync(this.dataPath, 'utf8');
       const storiesData = JSON.parse(data);
       
-      // Convert JSON data to Story objects with proper Date objects
-      this.stories = storiesData.map((story: any) => ({
-        ...story,
-        createdAt: new Date(story.createdAt),
-        updatedAt: new Date(story.updatedAt)
-      }));
+      // Convert JSON data to Story objects with proper Date objects and validate
+      this.stories = storiesData
+        .map((story: any) => ({
+          ...story,
+          createdAt: new Date(story.createdAt),
+          updatedAt: new Date(story.updatedAt)
+        }))
+        .filter((story: any) => {
+          if (!this.validateStory(story)) {
+            console.warn(`Invalid story data found, skipping story with id: ${story.id}`);
+            return false;
+          }
+          return true;
+        });
     } catch (error) {
       console.error('Error loading stories:', error);
       this.stories = [];
