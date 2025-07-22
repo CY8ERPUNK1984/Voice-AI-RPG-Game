@@ -98,6 +98,15 @@ describe('WebSocketServer LLM Integration', () => {
       getSession: vi.fn().mockReturnValue(mockSession),
       getUserSession: vi.fn().mockReturnValue(mockSession),
       addMessage: vi.fn().mockReturnValue(true),
+      addAIMessageWithTTS: vi.fn().mockResolvedValue({
+        id: 'ai-msg-1',
+        sessionId: 'session-1',
+        type: 'ai' as const,
+        content: 'AI response to test message',
+        metadata: {},
+        timestamp: new Date(),
+        audioUrl: undefined
+      }),
       updateSessionSettings: vi.fn().mockReturnValue(true),
       updateSessionContext: vi.fn().mockReturnValue(true),
       pauseSession: vi.fn().mockReturnValue(true),
@@ -144,6 +153,19 @@ describe('WebSocketServer LLM Integration', () => {
   });
 
   it('should integrate LLM service with game sessions for message processing', async () => {
+    // Mock addAIMessageWithTTS to return a proper AI message
+    const mockAIMessage = {
+      id: 'ai-msg-1',
+      sessionId: 'session-1',
+      type: 'ai' as const,
+      content: 'AI response to test message',
+      metadata: {},
+      timestamp: new Date(),
+      audioUrl: undefined
+    };
+    
+    mockGameSessionManager.addAIMessageWithTTS = vi.fn().mockResolvedValue(mockAIMessage);
+    
     // Create WebSocketServer
     new WebSocketServer(mockIO as unknown as Server);
     
@@ -176,12 +198,12 @@ describe('WebSocketServer LLM Integration', () => {
       mockSession.context
     );
     
-    // Verify AI response was added to session
-    expect(mockGameSessionManager.addMessage).toHaveBeenCalledWith(
+    // Verify AI message was created with TTS
+    expect(mockGameSessionManager.addAIMessageWithTTS).toHaveBeenCalledWith(
       'session-1',
+      'AI response to test message',
       expect.objectContaining({
-        type: 'ai',
-        content: 'AI response to test message'
+        processingTime: expect.any(Number)
       })
     );
     
@@ -195,6 +217,19 @@ describe('WebSocketServer LLM Integration', () => {
   it('should handle LLM errors gracefully with fallback messages', async () => {
     // Mock LLM service to throw error
     mockLLMService.generateResponse.mockRejectedValueOnce(new Error('LLM service error'));
+    
+    // Mock fallback AI message
+    const mockFallbackMessage = {
+      id: 'fallback-msg-1',
+      sessionId: 'session-1',
+      type: 'ai' as const,
+      content: 'Извините, у меня возникли проблемы с генерацией ответа. Пожалуйста, попробуйте еще раз или выберите другую историю.',
+      metadata: { error: true },
+      timestamp: new Date(),
+      audioUrl: undefined
+    };
+    
+    mockGameSessionManager.addAIMessageWithTTS = vi.fn().mockResolvedValue(mockFallbackMessage);
     
     // Create WebSocketServer
     new WebSocketServer(mockIO as unknown as Server);

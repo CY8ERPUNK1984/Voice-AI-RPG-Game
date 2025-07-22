@@ -49,6 +49,39 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', message: 'Voice AI RPG Backend is running' });
 });
 
+// Server metrics endpoint for monitoring
+app.get('/api/metrics', (_req, res) => {
+  try {
+    const metrics = gameController.getServerMetrics();
+    const activeSessions = gameController.getActiveSessions();
+    const activeConnections = gameController.getActiveConnections();
+    
+    res.json({
+      server: metrics,
+      sessions: {
+        active: activeSessions.length,
+        total: activeSessions.length
+      },
+      connections: {
+        active: activeConnections.length,
+        details: activeConnections.map(conn => ({
+          socketId: conn.socketId,
+          userId: conn.userId,
+          sessionId: conn.sessionId,
+          connectedAt: conn.connectedAt,
+          lastActivity: conn.lastActivity,
+          reconnectCount: conn.reconnectCount,
+          isHealthy: conn.isHealthy
+        }))
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch metrics' });
+  }
+});
+
 // API endpoint to get all stories
 app.get('/api/stories', async (_req, res) => {
   try {
@@ -151,7 +184,36 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
+// Setup graceful shutdown
+const gracefulShutdown = async () => {
+  console.log('Received shutdown signal, starting graceful shutdown...');
+  
+  try {
+    // Shutdown WebSocket server first
+    await gameController.shutdownServer();
+    
+    // Close HTTP server
+    server.close(() => {
+      console.log('HTTP server closed');
+      process.exit(0);
+    });
+    
+    // Force exit after 10 seconds if graceful shutdown fails
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  } catch (error) {
+    console.error('Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log('Game controller initialized with WebSocket server');
+  console.log('Graceful shutdown handlers registered');
 });

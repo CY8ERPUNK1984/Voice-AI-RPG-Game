@@ -44,16 +44,46 @@ Open http://localhost:3000 and start your adventure! 🎯
 
 ## 🏗️ Architecture
 
+### Rate Limiting & API Management
+
+The application implements sophisticated rate limiting to ensure reliable OpenAI API usage:
+
+#### RateLimiter Service
+- **Token Bucket Algorithm**: Efficient rate limiting with configurable burst capacity
+- **Request Queuing**: Priority-based queue system for handling API request bursts
+- **Exponential Backoff**: Intelligent retry logic with increasing delays for failed requests
+- **Multi-Endpoint Support**: Separate rate limits for different OpenAI services (GPT-4, TTS, Whisper)
+- **Real-time Metrics**: Comprehensive tracking of request success rates, queue sizes, and wait times
+- **Circuit Breaker Pattern**: Automatic fallback when API limits are exceeded
+
+#### API Endpoint Configuration
+- **OpenAI Chat (GPT-4)**: 60 requests/minute, burst limit of 10, queue size 50
+- **OpenAI TTS**: 50 requests/minute, burst limit of 8, queue size 30  
+- **OpenAI Whisper**: 50 requests/minute, burst limit of 8, queue size 30
+
+#### Error Handling & Fallbacks
+- **Graceful Degradation**: Automatic fallback to text-only mode when TTS fails
+- **Request Timeout Management**: 30-60 second timeouts with proper cleanup
+- **Health Monitoring**: Service availability tracking with automatic recovery
+- **Fallback Responses**: Pre-defined responses when LLM services are unavailable
+
 ### Connection Management
 
-The application features a robust connection management system built around the `ConnectionManager` service:
+The application features a robust connection management system with comprehensive monitoring and reliability features:
 
-#### Key Features
+#### Frontend Connection Manager
 - **Automatic Reconnection**: Exponential backoff retry logic with configurable parameters
 - **Health Monitoring**: Real-time connection quality assessment based on latency
 - **State Persistence**: Connection state saved to localStorage for recovery across page reloads
 - **Heartbeat System**: Regular ping/pong monitoring to detect connection issues
 - **Event-Driven Architecture**: Clean separation of concerns with event listeners
+
+#### Backend Connection Monitoring
+- **Advanced Connection Tracking**: Detailed connection info with health metrics and quality assessment
+- **Timeout Management**: Automatic detection and handling of inactive connections
+- **Error Tracking**: Comprehensive error counting and classification per connection
+- **Session Persistence**: Automatic session recovery across server restarts
+- **Graceful Shutdown**: Proper cleanup with client notification and session preservation
 
 #### Connection States
 - `connecting` - Initial connection attempt
@@ -63,10 +93,17 @@ The application features a robust connection management system built around the 
 - `failed` - Max reconnection attempts exceeded
 
 #### Connection Quality Metrics
-- `excellent` - Latency < 100ms
-- `good` - Latency < 300ms  
-- `poor` - Latency < 1000ms
-- `critical` - Latency > 1000ms or disconnected
+- `excellent` - Low latency, no errors, active communication
+- `good` - Moderate latency, minimal errors
+- `poor` - High latency or some errors detected
+- `critical` - Very high latency, frequent errors, or connection timeouts
+
+#### Server Monitoring Features
+- **Real-time Health Checks**: Periodic connection health assessment every 30 seconds
+- **Connection Quality Scoring**: Dynamic quality assessment based on latency, errors, and activity
+- **Automatic Cleanup**: Removal of stale connections with session preservation
+- **Performance Metrics**: Tracking of connection duration, error rates, and server uptime
+- **Timeout Detection**: Proactive identification of unresponsive connections
 
 ### Frontend (React + TypeScript)
 - **React 18** with modern hooks and concurrent features
@@ -81,11 +118,16 @@ The application features a robust connection management system built around the 
 
 ### Backend (Node.js + TypeScript)
 - **Express** server with TypeScript
-- **Socket.io** for WebSocket communication with heartbeat support
-- **OpenAI API** integration (GPT-4, Whisper, TTS)
+- **Enhanced Socket.io** WebSocket server with advanced connection monitoring
+- **OpenAI API** integration (GPT-4, Whisper, TTS) with intelligent rate limiting
+- **Advanced Rate Limiting**: Token bucket algorithm with request queuing and priority handling
 - **Multer** for audio file handling
 - **Comprehensive error handling** and fallback mechanisms
-- **Connection health monitoring** with automatic cleanup
+- **Advanced Connection Management**: Real-time health monitoring, timeout detection, and quality assessment
+- **Session Persistence**: Automatic session recovery across server restarts and connection drops
+- **Graceful Shutdown**: Proper cleanup procedures with client notification
+- **Performance Monitoring**: Connection metrics, error tracking, and server health statistics
+- **Robust Testing Suite**: Comprehensive test coverage for all services with proper mocking and error simulation
 
 ### AI Services Integration
 - **ASR**: Web Speech API (primary) + OpenAI Whisper (fallback)
@@ -106,7 +148,11 @@ voice-ai-rpg-game/
 ├── 📁 backend/               # Node.js server
 │   ├── 📁 src/
 │   │   ├── 📁 controllers/   # Route handlers
-│   │   ├── 📁 services/      # Business logic
+│   │   ├── 📁 services/      # Business logic & AI integrations
+│   │   │   ├── RateLimiter.ts    # Token bucket rate limiting
+│   │   │   ├── OpenAILLM.ts      # GPT-4 integration with rate limiting
+│   │   │   ├── OpenAITTS.ts      # TTS with fallback handling
+│   │   │   └── WebSocketServer.ts # Enhanced connection management
 │   │   ├── 📁 data/          # Story data
 │   │   └── 📁 types/         # TypeScript definitions
 │   └── 📁 dist/             # Built backend
@@ -183,6 +229,12 @@ PORT=3001
 OPENAI_API_KEY=your_openai_api_key_here
 AUDIO_TEMP_DIR=temp/audio
 MAX_AUDIO_FILE_SIZE=25000000
+
+# Rate Limiting Configuration (optional - defaults provided)
+RATE_LIMIT_CHAT_RPM=60
+RATE_LIMIT_TTS_RPM=50
+RATE_LIMIT_WHISPER_RPM=50
+RATE_LIMIT_BURST_MULTIPLIER=0.2
 ```
 
 #### Frontend (.env)
@@ -194,11 +246,11 @@ VITE_ENABLE_VOICE_FEATURES=true
 
 ## 🧪 Testing
 
-The project includes comprehensive testing with accessibility compliance:
+The project includes comprehensive testing with accessibility compliance and robust backend service validation:
 
 - **Unit Tests**: Component and service testing with Vitest
 - **Accessibility Tests**: ARIA labels, keyboard navigation, and screen reader support
-- **Integration Tests**: API and WebSocket testing
+- **Integration Tests**: API and WebSocket testing with enhanced mocking
 - **E2E Tests**: Full user journey testing with Playwright
 - **Performance Tests**: Audio pipeline optimization tests
 
@@ -212,10 +264,46 @@ npm run test:e2e         # End-to-end tests
 ### Testing Features
 - **Loading State Testing**: Proper ARIA labeling for loading indicators
 - **Voice Component Testing**: ASR and TTS functionality validation
-- **WebSocket Testing**: Real-time communication reliability
+- **WebSocket Testing**: Real-time communication reliability with proper Socket.io mocking
 - **Error Handling Testing**: Graceful degradation scenarios
 - **Component Integration Testing**: ChatInterface and voice input coordination
+- **Rate Limiting Testing**: Token bucket algorithm and queue management validation
+- **API Integration Testing**: OpenAI service reliability with retry logic and proper error simulation
 - **TypeScript Compliance Testing**: Strict type checking and modern React patterns
+
+### Backend Service Testing
+- **OpenAI Service Tests**: Comprehensive testing of LLM, TTS, and Whisper ASR services with proper mocking
+- **Rate Limiter Tests**: Token bucket algorithm, request queuing, priority handling, and metrics tracking
+- **WebSocket Server Tests**: Connection management, message processing, and LLM integration with optimized test performance
+- **Error Recovery Tests**: Fallback mechanisms, timeout handling, and service degradation
+- **Health Check Tests**: Service availability monitoring and automatic recovery validation
+
+### Rate Limiting Monitoring
+
+The RateLimiter service provides comprehensive metrics for monitoring API usage:
+
+```typescript
+// Get metrics for a specific endpoint
+const metrics = globalRateLimiter.getMetrics('openai-chat');
+console.log({
+  totalRequests: metrics.totalRequests,
+  successfulRequests: metrics.successfulRequests,
+  rateLimitedRequests: metrics.rateLimitedRequests,
+  queuedRequests: metrics.queuedRequests,
+  averageWaitTime: metrics.averageWaitTime,
+  currentTokens: metrics.currentTokens
+});
+
+// Get current queue status
+const queueStatus = globalRateLimiter.getQueueStatus();
+console.log('Queue status:', queueStatus);
+```
+
+#### Rate Limiting Events
+The RateLimiter emits events for monitoring:
+- `requestQueued`: When a request is added to the queue
+- `requestProcessed`: When a queued request is processed
+- `rateLimitExceeded`: When rate limits are hit
 
 ## 🚀 Deployment
 
@@ -250,12 +338,50 @@ npm run start
 - Mobile responsiveness
 - Comprehensive test coverage with accessibility testing
 
+✅ **Enhanced Reliability & Testing**
+- **Backend Service Stability**: All critical OpenAI API integrations (LLM, TTS, Whisper) with robust error handling and retry logic
+- **Advanced Rate Limiting**: Token bucket algorithm with request queuing and priority management for API calls
+- **Connection Management**: Enhanced WebSocket server with health monitoring, timeout detection, and automatic reconnection
+- **Comprehensive Test Suite**: Full test coverage for all backend services with proper mocking and error simulation
+- **Service Health Monitoring**: Real-time health checks and performance metrics for all AI services
+- **Graceful Degradation**: Automatic fallback mechanisms when services are unavailable or rate-limited
+
+## 🔧 Development Progress
+
+### ✅ Completed (Phase 1-3)
+- **WebSocket Connection Reliability**: Enhanced connection manager with exponential backoff and heartbeat monitoring
+- **OpenAI API Integration**: Complete LLM, TTS, and Whisper services with rate limiting and retry logic
+- **Backend Test Suite**: Comprehensive testing for all services with proper mocking and error scenarios
+- **Rate Limiting System**: Token bucket algorithm with request queuing and priority handling
+- **Error Handling**: Robust error classification, fallback mechanisms, and user-friendly error messages
+
+### 🚧 In Progress (Phase 4-5)
+- **Frontend Test Fixes**: Resolving remaining component test issues and improving mock setups
+- **Enhanced Error Handling**: Centralized error management with recovery suggestions
+- **UI/UX Improvements**: Better status indicators and loading states
+
+### 📋 Planned (Phase 6-12)
+- **Performance Optimization**: Session cleanup, request caching, and audio processing improvements
+- **Monitoring & Logging**: Structured logging system and performance metrics collection
+- **Code Quality**: Architecture refactoring and TypeScript improvements
+- **Final Testing**: End-to-end testing and quality assurance
+
 ✅ **Recent Improvements**
+- **Advanced Rate Limiting System**: New RateLimiter service with token bucket algorithm, request queuing, and priority handling for OpenAI API calls
 - **Enhanced Connection Reliability**: New ConnectionManager service with exponential backoff retry logic
+- **Advanced Server Monitoring**: Comprehensive connection tracking with health metrics, error counting, and quality assessment
+- **Intelligent API Management**: Separate rate limits for GPT-4, TTS, and Whisper with automatic fallback mechanisms
+- **Request Queue Management**: Priority-based queuing system with timeout handling and metrics tracking
 - **Automatic Reconnection**: Smart reconnection with heartbeat monitoring and connection quality assessment
-- **Connection State Management**: Persistent connection state with localStorage integration
-- **Health Monitoring**: Real-time connection health metrics and latency tracking
-- **Error Recovery**: Comprehensive error handling with user-friendly feedback
+- **Connection State Management**: Persistent connection state with localStorage integration and server-side session recovery
+- **Health Monitoring**: Real-time connection health metrics, latency tracking, and timeout detection
+- **Graceful Shutdown Handling**: Proper server shutdown with client notification and session preservation
+- **Error Recovery**: Comprehensive error handling with user-friendly feedback and automatic cleanup
+- **Performance Metrics**: Server uptime tracking, connection statistics, and quality distribution monitoring
+- **Circuit Breaker Pattern**: Automatic service degradation when API limits are exceeded
+- **Enhanced Test Coverage**: Improved WebSocket integration tests with proper LLM service mocking and TTS integration validation
+- **Service Reliability**: Comprehensive error handling tests for OpenAI services with retry logic and fallback mechanisms
+- **Connection Management Tests**: Advanced WebSocket server testing with connection monitoring and session persistence
 - Fixed Socket.io integration between frontend and backend
 - Resolved TypeScript compatibility issues with Socket.io types
 - Improved error handling for real-time message processing
@@ -294,11 +420,23 @@ We welcome contributions! Please see our contributing guidelines:
 - Check WebSocket URL configuration
 - Verify CORS settings
 - Ensure both frontend and backend are running
+- Monitor connection quality indicators in the UI
+- Check browser console for connection timeout warnings
+- Verify server health with automatic reconnection attempts
+
+**API rate limiting issues?**
+- Monitor rate limit metrics in server logs
+- Check OpenAI API key validity and quota
+- Verify rate limiter configuration for your usage patterns
+- Review queue status if requests are being delayed
+- Consider upgrading OpenAI plan for higher rate limits
 
 **Performance issues?**
 - Enable audio compression in settings
 - Adjust TTS settings for faster response
 - Monitor memory usage for long sessions
+- Check rate limiter metrics for API bottlenecks
+- Review request queue sizes during peak usage
 
 ## 📄 License
 

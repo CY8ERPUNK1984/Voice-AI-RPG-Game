@@ -65,7 +65,12 @@ export class GameSessionManager {
   getUserSession(userId: string): GameSession | undefined {
     const sessionId = this.userSessions.get(userId);
     if (!sessionId) return undefined;
-    return this.sessions.get(sessionId);
+    const session = this.sessions.get(sessionId);
+    // Only return if session is active or paused (can be resumed)
+    if (session && (session.status === 'active' || session.status === 'paused')) {
+      return session;
+    }
+    return undefined;
   }
 
   /**

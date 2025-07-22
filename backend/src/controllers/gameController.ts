@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import { WebSocketServer } from '../services/WebSocketServer';
+import { WebSocketServer, ServerMetrics, ConnectionInfo } from '../services/WebSocketServer';
 import { GameSessionManager } from '../services/GameSessionManager';
 import { StoryService } from '../services/StoryService';
 
@@ -76,5 +76,29 @@ export class GameController {
     // For now, we'll construct the path directly
     const path = require('path');
     return path.join(process.cwd(), 'temp', 'audio', filename);
+  }
+
+  /**
+   * Get WebSocket server metrics for monitoring
+   * @returns Server metrics
+   */
+  getServerMetrics(): ServerMetrics {
+    return this.webSocketServer.getServerMetrics();
+  }
+
+  /**
+   * Get active WebSocket connections
+   * @returns Array of active connections
+   */
+  getActiveConnections(): ConnectionInfo[] {
+    return this.webSocketServer.getActiveConnections();
+  }
+
+  /**
+   * Shutdown the WebSocket server gracefully
+   * @returns Promise that resolves when shutdown is complete
+   */
+  async shutdownServer(): Promise<void> {
+    return this.webSocketServer.shutdown();
   }
 }

@@ -132,6 +132,10 @@ describe('GameSessionManager TTS Integration', () => {
 
   describe('testTTS', () => {
     it('should test TTS synthesis', async () => {
+      // Ensure mock is properly set up
+      vi.mocked(mockTTSService.isAvailable).mockReturnValue(true);
+      vi.mocked(mockTTSService.synthesizeSpeech).mockResolvedValue('/api/audio/test-audio.mp3');
+      
       const result = await gameSessionManager.testTTS('Test message');
       
       expect(result).toBe('/api/audio/test-audio.mp3');
@@ -146,6 +150,10 @@ describe('GameSessionManager TTS Integration', () => {
     });
 
     it('should use default test message', async () => {
+      // Ensure mock is properly set up
+      vi.mocked(mockTTSService.isAvailable).mockReturnValue(true);
+      vi.mocked(mockTTSService.synthesizeSpeech).mockResolvedValue('/api/audio/test-audio.mp3');
+      
       await gameSessionManager.testTTS();
       
       expect(mockTTSService.synthesizeSpeech).toHaveBeenCalledWith(

@@ -1,19 +1,28 @@
 import { OpenAI } from 'openai';
 import { LLMService, GameContext, ErrorResponse } from '../types';
+import { globalRateLimiter } from './RateLimiter';
 import * as dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();
 
 /**
- * OpenAI LLM service implementation
+ * OpenAI LLM service implementation with rate limiting and retry logic
  * Handles communication with OpenAI API for generating game responses
  */
 export class OpenAILLM implements LLMService {
   private client: OpenAI;
   private maxRetries: number = 3;
-  private retryDelay: number = 1000; // ms
+  private baseRetryDelay: number = 1000; // ms
+  private maxRetryDelay: number = 30000; // ms
+  private backoffMultiplier: number = 2;
   private model: string = 'gpt-4o';
+  private requestTimeout: number = 60000; // 60 seconds
+  private fallbackResponses: string[] = [
+    'Извините, у меня временные проблемы с подключением. Попробуйте повторить ваш запрос.',
+    'Сейчас я испытываю технические трудности. Пожалуйста, попробуйте еще раз через несколько секунд.',
+    'Произошла временная ошибка. Повторите ваше действие, пожалуйста.'
+  ];
 
   constructor(apiKey?: string) {
     // Use provided API key or get from environment variables
@@ -36,26 +45,66 @@ export class OpenAILLM implements LLMService {
    */
   async generateResponse(prompt: string, context: GameContext): Promise<string> {
     let attempts = 0;
+    let lastError: any;
     
     while (attempts < this.maxRetries) {
       try {
-        return await this.callOpenAI(prompt, context);
+        // Acquire rate limit permission
+        await globalRateLimiter.acquire('openai-chat', 'high');
+        
+        // Call OpenAI API with timeout
+        return await this.callOpenAIWithTimeout(prompt, context);
       } catch (error: any) {
         attempts++;
-        console.error(`OpenAI API error (attempt ${attempts}/${this.maxRetries}):`, error.message);
+        lastError = error;
         
-        // If we've reached max retries, throw the error
+        const errorType = this.classifyError(error);
+        console.error(`OpenAI API error (attempt ${attempts}/${this.maxRetries}):`, {
+          type: errorType,
+          message: error.message,
+          status: error.status
+        });
+        
+        // If we've reached max retries, handle fallback
         if (attempts >= this.maxRetries) {
-          throw this.formatError(error);
+          return this.handlePersistentFailure(error, context);
         }
         
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, this.retryDelay * attempts));
+        // Check if error is retryable
+        if (!this.isRetryableError(error)) {
+          return this.handleNonRetryableError(error, context);
+        }
+        
+        // Calculate exponential backoff delay
+        const delay = this.calculateRetryDelay(attempts, errorType);
+        console.log(`Retrying in ${delay}ms...`);
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    // This should never be reached due to the throw in the loop
-    throw new Error('Failed to generate response after multiple attempts');
+    // Fallback response if all retries failed
+    return this.handlePersistentFailure(lastError, context);
+  }
+
+  /**
+   * Call OpenAI API with timeout handling
+   */
+  private async callOpenAIWithTimeout(prompt: string, context: GameContext): Promise<string> {
+    return new Promise(async (resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Request timeout'));
+      }, this.requestTimeout);
+
+      try {
+        const result = await this.callOpenAI(prompt, context);
+        clearTimeout(timeoutId);
+        resolve(result);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    });
   }
 
   /**
@@ -209,8 +258,228 @@ Your goal is to create an immersive and engaging RPG experience through text.`;
   /**
    * Configure retry settings
    */
-  configureRetries(maxRetries: number, retryDelay: number): void {
+  configureRetries(maxRetries: number, baseRetryDelay: number, maxRetryDelay?: number, backoffMultiplier?: number): void {
     this.maxRetries = maxRetries;
-    this.retryDelay = retryDelay;
+    this.baseRetryDelay = baseRetryDelay;
+    if (maxRetryDelay) this.maxRetryDelay = maxRetryDelay;
+    if (backoffMultiplier) this.backoffMultiplier = backoffMultiplier;
+  }
+
+  /**
+   * Classify error type for appropriate handling
+   */
+  private classifyError(error: any): 'rate_limit' | 'timeout' | 'auth' | 'server' | 'network' | 'unknown' {
+    if (error.message === 'Request timeout') {
+      return 'timeout';
+    }
+    
+    if (error.status) {
+      switch (error.status) {
+        case 429:
+          return 'rate_limit';
+        case 401:
+        case 403:
+          return 'auth';
+        case 500:
+        case 502:
+        case 503:
+        case 504:
+          return 'server';
+        default:
+          return 'unknown';
+      }
+    }
+    
+    if (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+      return 'network';
+    }
+    
+    return 'unknown';
+  }
+
+  /**
+   * Check if error is retryable
+   */
+  private isRetryableError(error: any): boolean {
+    const errorType = this.classifyError(error);
+    
+    // Non-retryable errors
+    if (errorType === 'auth') {
+      return false;
+    }
+    
+    // Client errors (4xx) except rate limiting are generally not retryable
+    if (error.status && error.status >= 400 && error.status < 500 && error.status !== 429) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  /**
+   * Calculate retry delay with exponential backoff
+   */
+  private calculateRetryDelay(attempt: number, errorType: string): number {
+    let baseDelay = this.baseRetryDelay;
+    
+    // Longer delays for rate limiting
+    if (errorType === 'rate_limit') {
+      baseDelay = Math.max(baseDelay, 5000); // Minimum 5 seconds for rate limits
+    }
+    
+    // Exponential backoff
+    const delay = baseDelay * Math.pow(this.backoffMultiplier, attempt - 1);
+    
+    // Add jitter to prevent thundering herd
+    const jitter = Math.random() * 0.1 * delay;
+    
+    return Math.min(delay + jitter, this.maxRetryDelay);
+  }
+
+  /**
+   * Handle non-retryable errors
+   */
+  private async handleNonRetryableError(error: any, context: GameContext): Promise<string> {
+    const errorType = this.classifyError(error);
+    
+    if (errorType === 'auth') {
+      console.error('Authentication error with OpenAI API. Check API key.');
+      return 'Извините, произошла ошибка авторизации. Пожалуйста, обратитесь к администратору.';
+    }
+    
+    // For other non-retryable errors, return a contextual fallback
+    return this.generateContextualFallback(context);
+  }
+
+  /**
+   * Handle persistent failures after all retries
+   */
+  private async handlePersistentFailure(error: any, context: GameContext): Promise<string> {
+    const errorType = this.classifyError(error);
+    
+    console.error('OpenAI API persistent failure:', {
+      type: errorType,
+      message: error.message,
+      status: error.status
+    });
+    
+    // Log for monitoring
+    this.logFailure(error, context);
+    
+    // Return contextual fallback response
+    return this.generateContextualFallback(context);
+  }
+
+  /**
+   * Generate contextual fallback response
+   */
+  private generateContextualFallback(context: GameContext): string {
+    const { story } = context;
+    
+    // Try to provide a genre-appropriate fallback
+    const genreFallbacks: Record<string, string[]> = {
+      fantasy: [
+        'Магические силы временно ослабли. Попробуйте повторить ваше действие.',
+        'Древние руны мерцают и гаснут. Магия нестабильна в данный момент.',
+        'Волшебство требует времени для восстановления. Подождите немного.'
+      ],
+      'sci-fi': [
+        'Системы корабля временно недоступны. Перезагрузка в процессе.',
+        'Связь с центральным компьютером прервана. Попробуйте еще раз.',
+        'Технические неполадки в системе ИИ. Восстановление соединения...'
+      ],
+      mystery: [
+        'Туман сгущается, затрудняя видимость. Попробуйте еще раз.',
+        'Улики временно скрыты во мраке. Подождите прояснения.',
+        'Тайна углубляется. Нужно время, чтобы разгадать следующий шаг.'
+      ],
+      adventure: [
+        'Путь временно заблокирован. Ищите альтернативный маршрут.',
+        'Приключение приостановлено. Соберитесь с силами и попробуйте снова.',
+        'Неожиданное препятствие на пути. Время для новой стратегии.'
+      ],
+      horror: [
+        'Тьма поглощает ваши слова. Попробуйте прошептать еще раз.',
+        'Зловещая тишина нарушает связь. Осмельтесь повторить.',
+        'Силы зла временно блокируют путь. Наберитесь храбрости.'
+      ]
+    };
+    
+    const fallbacks = genreFallbacks[story.genre] || this.fallbackResponses;
+    const randomIndex = Math.floor(Math.random() * fallbacks.length);
+    
+    return fallbacks[randomIndex];
+  }
+
+  /**
+   * Log failure for monitoring and debugging
+   */
+  private logFailure(error: any, context: GameContext): void {
+    const logData = {
+      timestamp: new Date().toISOString(),
+      service: 'OpenAI-LLM',
+      error: {
+        type: this.classifyError(error),
+        message: error.message,
+        status: error.status,
+        code: error.code
+      },
+      context: {
+        storyId: context.story.id,
+        genre: context.story.genre,
+        conversationLength: context.conversationHistory.length
+      }
+    };
+    
+    console.error('LLM Service Failure:', JSON.stringify(logData, null, 2));
+  }
+
+  /**
+   * Set request timeout
+   */
+  setTimeout(timeout: number): void {
+    this.requestTimeout = timeout;
+  }
+
+  /**
+   * Add custom fallback responses
+   */
+  addFallbackResponses(responses: string[]): void {
+    this.fallbackResponses.push(...responses);
+  }
+
+  /**
+   * Get service health status
+   */
+  async getHealthStatus(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; details: any }> {
+    try {
+      // Try a simple API call to check health
+      await globalRateLimiter.acquire('openai-chat', 'low');
+      
+      const testResponse = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [{ role: 'user', content: 'test' }],
+        max_tokens: 1
+      });
+      
+      return {
+        status: 'healthy',
+        details: {
+          model: this.model,
+          rateLimiter: globalRateLimiter.getMetrics('openai-chat')
+        }
+      };
+    } catch (error: any) {
+      const errorType = this.classifyError(error);
+      
+      return {
+        status: errorType === 'rate_limit' ? 'degraded' : 'unhealthy',
+        details: {
+          error: error.message,
+          type: errorType,
+          rateLimiter: globalRateLimiter.getMetrics('openai-chat')
+        }
+      };
+    }
   }
 }

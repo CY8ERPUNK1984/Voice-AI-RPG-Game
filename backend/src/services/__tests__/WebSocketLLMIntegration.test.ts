@@ -4,7 +4,8 @@ import { WebSocketServer } from '../WebSocketServer';
 import { GameSessionManager } from '../GameSessionManager';
 import { StoryService } from '../StoryService';
 import { OpenAILLM } from '../OpenAILLM';
-import { Story, GameSession, Message, AudioSettings, GameContext, LLMService } from '../../types';
+import { OpenAITTS } from '../OpenAITTS';
+import { Story, GameSession, Message, AudioSettings, GameContext, LLMService, TTSService } from '../../types';
 import { v4 as uuidv4 } from 'uuid';
 
 // Mock story for testing
@@ -27,8 +28,8 @@ const mockStory: Story = {
 // Mock LLM Service for integration testing
 class MockLLMService implements LLMService {
   async generateResponse(prompt: string, context: GameContext): Promise<string> {
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Minimal delay for testing - just enough to simulate async behavior
+    await new Promise(resolve => setTimeout(resolve, 1));
     
     // Simulate contextual responses based on input and game state
     const promptLower = prompt.toLowerCase();
@@ -61,6 +62,21 @@ class MockLLMService implements LLMService {
   }
 }
 
+// Mock TTS Service for integration testing
+class MockTTSService implements TTSService {
+  async synthesizeSpeech(text: string): Promise<Buffer> {
+    // Minimal delay for testing
+    await new Promise(resolve => setTimeout(resolve, 1));
+    
+    // Return a mock audio buffer
+    return Buffer.from('mock-audio-data');
+  }
+
+  isAvailable(): boolean {
+    return true;
+  }
+}
+
 describe('WebSocket LLM Integration Tests', () => {
   let webSocketServer: WebSocketServer;
   let mockIO: any;
@@ -68,6 +84,7 @@ describe('WebSocket LLM Integration Tests', () => {
   let gameSessionManager: GameSessionManager;
   let storyService: StoryService;
   let mockLLMService: MockLLMService;
+  let mockTTSService: MockTTSService;
   let eventHandlers: Map<string, Function>;
 
   const defaultSettings: AudioSettings = {
@@ -99,19 +116,21 @@ describe('WebSocket LLM Integration Tests', () => {
       })
     };
 
-    // Create real instances for integration testing
-    gameSessionManager = new GameSessionManager();
-    storyService = new StoryService();
+    // Create real instances for integration testing with mocked services
     mockLLMService = new MockLLMService();
+    mockTTSService = new MockTTSService();
+    gameSessionManager = new GameSessionManager(mockTTSService);
+    storyService = new StoryService();
 
     // Mock the StoryService to return our test story
     vi.spyOn(storyService, 'getStoryById').mockResolvedValue(mockStory);
 
-    // Create WebSocketServer with mocked LLM service
+    // Create WebSocketServer with mocked services
     webSocketServer = new WebSocketServer(mockIO as unknown as Server);
     
-    // Replace the LLM service with our mock
+    // Replace the services with our mocks
     (webSocketServer as any).llmService = mockLLMService;
+    (webSocketServer as any).ttsService = mockTTSService;
     (webSocketServer as any).gameSessionManager = gameSessionManager;
     (webSocketServer as any).storyService = storyService;
   });
@@ -171,7 +190,13 @@ describe('WebSocket LLM Integration Tests', () => {
       expect(sendMessageHandler).toBeDefined();
 
       // Send a message that should trigger context updates
-      await sendMessageHandler!('I want to check my inventory');
+      const messagePromise = sendMessageHandler!('I want to check my inventory');
+      
+      // Wait for the message handler to complete
+      await messagePromise;
+
+      // Small delay to ensure all async operations complete
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       // Verify session was updated with user message
       const session = gameSessionManager.getSession(sessionId);
@@ -191,7 +216,7 @@ describe('WebSocket LLM Integration Tests', () => {
       // Verify context was updated
       expect(session!.context.characterState.lastInventoryCheck).toBeDefined();
       expect(session!.context.conversationHistory).toContain('Player: I want to check my inventory');
-    });
+    }, 2000);
 
     it('should maintain conversation context across multiple interactions', async () => {
       const sendMessageHandler = eventHandlers.get('send-message');
@@ -205,7 +230,12 @@ describe('WebSocket LLM Integration Tests', () => {
       // Process multiple messages sequentially
       for (const message of messages) {
         await sendMessageHandler!(message);
+        // Small delay between messages to ensure proper processing
+        await new Promise(resolve => setTimeout(resolve, 5));
       }
+
+      // Wait for final processing
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       const session = gameSessionManager.getSession(sessionId);
       expect(session).toBeDefined();
@@ -220,12 +250,15 @@ describe('WebSocket LLM Integration Tests', () => {
       // Verify location context was updated from forest message
       expect(session!.context.gameState.currentLocation).toBeDefined();
       expect(session!.context.gameState.lastLocationUpdate).toBeDefined();
-    });
+    }, 2000);
 
     it('should update character state based on health check', async () => {
       const sendMessageHandler = eventHandlers.get('send-message');
       
       await sendMessageHandler!('How is my health?');
+
+      // Wait for async processing
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       const session = gameSessionManager.getSession(sessionId);
       expect(session).toBeDefined();
@@ -240,12 +273,15 @@ describe('WebSocket LLM Integration Tests', () => {
         m.type === 'ai' && m.content.includes('health is at 85/100')
       );
       expect(aiMessage).toBeDefined();
-    });
+    }, 2000);
 
     it('should track combat actions and update character state', async () => {
       const sendMessageHandler = eventHandlers.get('send-message');
       
       await sendMessageHandler!('I attack the enemy with my sword');
+
+      // Wait for async processing
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       const session = gameSessionManager.getSession(sessionId);
       expect(session).toBeDefined();
@@ -259,13 +295,14 @@ describe('WebSocket LLM Integration Tests', () => {
         m.type === 'ai' && m.content.includes('sword') && m.content.includes('battle')
       );
       expect(aiMessage).toBeDefined();
-    });
+    }, 2000);
 
     it('should track NPC encounters and quest information', async () => {
       const sendMessageHandler = eventHandlers.get('send-message');
       
       // First, trigger NPC encounter
       await sendMessageHandler!('I want to talk to someone');
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       let session = gameSessionManager.getSession(sessionId);
       expect(session!.context.characterState.lastSocialAction).toBeDefined();
@@ -273,18 +310,22 @@ describe('WebSocket LLM Integration Tests', () => {
 
       // Then trigger quest
       await sendMessageHandler!('Do you have any quests for me?');
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       session = gameSessionManager.getSession(sessionId);
       expect(session!.context.gameState.lastQuestUpdate).toBeDefined();
       expect(session!.context.gameState.activeQuests).toBeDefined();
       expect(session!.context.gameState.activeQuests.length).toBeGreaterThan(0);
       expect(session!.context.gameState.activeQuests[0].description).toContain('Crystal of Eldoria');
-    });
+    }, 2000);
 
     it('should handle location updates from AI responses', async () => {
       const sendMessageHandler = eventHandlers.get('send-message');
       
       await sendMessageHandler!('I want to enter the forest');
+
+      // Wait for async processing
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       const session = gameSessionManager.getSession(sessionId);
       expect(session).toBeDefined();
@@ -293,13 +334,16 @@ describe('WebSocket LLM Integration Tests', () => {
       expect(session!.context.gameState.currentLocation).toBe('Heart of the Ancient Woods');
       expect(session!.context.gameState.lastLocationUpdate).toBeDefined();
       expect(session!.context.characterState.lastAction).toBe('exploration');
-    });
+    }, 2000);
 
     it('should handle LLM errors gracefully with fallback messages', async () => {
       const sendMessageHandler = eventHandlers.get('send-message');
       
       // Send message that triggers error
       await sendMessageHandler!('error');
+
+      // Wait for async processing
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       const session = gameSessionManager.getSession(sessionId);
       expect(session).toBeDefined();
@@ -315,7 +359,7 @@ describe('WebSocket LLM Integration Tests', () => {
       expect(mockSocket.emit).toHaveBeenCalledWith('error', expect.objectContaining({
         type: 'LLM_ERROR'
       }));
-    });
+    }, 2000);
 
     it('should emit proper WebSocket events during message flow', async () => {
       const sendMessageHandler = eventHandlers.get('send-message');
@@ -324,6 +368,9 @@ describe('WebSocket LLM Integration Tests', () => {
       mockSocket.emit.mockClear();
       
       await sendMessageHandler!('I check my inventory');
+
+      // Wait for async processing
+      await new Promise(resolve => setTimeout(resolve, 20));
 
       // Verify proper sequence of events was emitted
       expect(mockSocket.emit).toHaveBeenCalledWith('message-received', expect.objectContaining({
@@ -341,7 +388,7 @@ describe('WebSocket LLM Integration Tests', () => {
           content: expect.stringContaining('inventory')
         })
       }));
-    });
+    }, 3000);
 
     it('should validate session state before processing messages', async () => {
       const sendMessageHandler = eventHandlers.get('send-message');
@@ -355,10 +402,10 @@ describe('WebSocket LLM Integration Tests', () => {
       // Try to send message to paused session
       await sendMessageHandler!('This should fail');
 
-      // Should emit validation error
+      // Should emit validation error (message is in Russian)
       expect(mockSocket.emit).toHaveBeenCalledWith('error', expect.objectContaining({
         type: 'VALIDATION_ERROR',
-        message: 'Session not active'
+        message: 'Сессия неактивна'
       }));
     });
   });
@@ -413,6 +460,9 @@ describe('WebSocket LLM Integration Tests', () => {
       const sendMessageHandler = eventHandlers.get('send-message');
       await sendMessageHandler!('Hello game master');
 
+      // Wait for message processing
+      await new Promise(resolve => setTimeout(resolve, 20));
+
       // Clear emit calls and request history
       mockSocket.emit.mockClear();
       
@@ -437,7 +487,7 @@ describe('WebSocket LLM Integration Tests', () => {
       const updatedSession = gameSessionManager.getSession(sessionId);
       expect(updatedSession!.messages.length).toBeGreaterThan(1);
       expect(updatedSession!.context.conversationHistory.length).toBeGreaterThan(0);
-    });
+    }, 3000);
   });
 
   describe('Error Handling Integration', () => {
@@ -456,10 +506,10 @@ describe('WebSocket LLM Integration Tests', () => {
         settings: defaultSettings
       });
 
-      // Should emit error
+      // Should emit error (message is in Russian)
       expect(mockSocket.emit).toHaveBeenCalledWith('error', expect.objectContaining({
         type: 'VALIDATION_ERROR',
-        message: 'Story not found'
+        message: 'История не найдена'
       }));
     });
 
@@ -472,10 +522,10 @@ describe('WebSocket LLM Integration Tests', () => {
       // Try to send message without active session
       await sendMessageHandler!('This should fail');
 
-      // Should emit validation error
+      // Should emit validation error (message is in Russian)
       expect(mockSocket.emit).toHaveBeenCalledWith('error', expect.objectContaining({
         type: 'VALIDATION_ERROR',
-        message: 'No active session'
+        message: 'Нет активной сессии'
       }));
     });
   });
