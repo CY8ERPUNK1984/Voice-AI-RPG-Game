@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Message as MessageType } from '../types';
+import { AudioPlayer } from './AudioPlayer';
 
 interface MessageProps {
   message: MessageType;
@@ -7,11 +8,21 @@ interface MessageProps {
 
 const Message: React.FC<MessageProps> = ({ message }) => {
   const isUser = message.type === 'user';
+  const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+  
   const formatTime = (timestamp: Date) => {
     return new Date(timestamp).toLocaleTimeString([], { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
+  };
+
+  const handleAudioPlaybackComplete = () => {
+    setShowAudioPlayer(false);
+  };
+
+  const toggleAudioPlayer = () => {
+    setShowAudioPlayer(!showAudioPlayer);
   };
 
   return (
@@ -35,13 +46,24 @@ const Message: React.FC<MessageProps> = ({ message }) => {
               </span>
               {message.audioUrl && (
                 <button 
-                  className="text-xs opacity-75 hover:opacity-100 transition-opacity"
-                  title="Play audio"
+                  onClick={toggleAudioPlayer}
+                  className="text-xs opacity-75 hover:opacity-100 transition-opacity flex items-center space-x-1"
+                  title={showAudioPlayer ? "Hide audio player" : "Show audio player"}
                 >
-                  🔊
+                  <span>🔊</span>
+                  <span>{showAudioPlayer ? "Hide" : "Play"}</span>
                 </button>
               )}
             </div>
+            {message.audioUrl && showAudioPlayer && (
+              <div className="mt-2">
+                <AudioPlayer
+                  audioUrl={message.audioUrl}
+                  autoPlay={false}
+                  onPlaybackComplete={handleAudioPlaybackComplete}
+                />
+              </div>
+            )}
             {message.metadata.confidence && (
               <div className="text-xs opacity-60 mt-1">
                 Confidence: {Math.round(message.metadata.confidence * 100)}%

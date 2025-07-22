@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Story, StorySelectorProps } from '../types';
+import { StorySkeleton } from './SkeletonLoader';
 
-const StorySelector: React.FC<StorySelectorProps> = ({ stories, onStorySelect }) => {
+const StorySelector: React.FC<StorySelectorProps> = ({ stories, onStorySelect, isLoading = false }) => {
   const [selectedGenre, setSelectedGenre] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filteredStories, setFilteredStories] = useState<Story[]>(stories);
@@ -101,8 +102,11 @@ const StorySelector: React.FC<StorySelectorProps> = ({ stories, onStorySelect })
       </div>
 
       {/* Stories Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredStories.map(story => (
+      {isLoading ? (
+        <StorySkeleton count={6} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredStories.map(story => (
           <div
             key={story.id}
             className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer border border-gray-200"
@@ -133,7 +137,8 @@ const StorySelector: React.FC<StorySelectorProps> = ({ stories, onStorySelect })
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* No Results */}
       {filteredStories.length === 0 && (

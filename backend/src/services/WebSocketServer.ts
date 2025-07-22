@@ -128,48 +128,41 @@ export class WebSocketServer {
           // Calculate processing time
           const processingTime = Date.now() - startTime;
           
-          const aiMessage: Message = {
-            id: uuidv4(),
-            sessionId: currentSessionId,
-            type: 'ai',
-            content: aiResponse,
-            metadata: {
-              processingTime: processingTime
-            },
-            timestamp: new Date()
-          };
+          // Add AI message with TTS synthesis
+          const aiMessage = await this.gameSessionManager.addAIMessageWithTTS(
+            currentSessionId, 
+            aiResponse, 
+            { processingTime }
+          );
 
-          // Add AI message to session
-          this.gameSessionManager.addMessage(currentSessionId, aiMessage);
+          if (!aiMessage) {
+            throw new Error('Failed to create AI message');
+          }
 
           // Send AI response
           const gameResponse: GameResponse = {
-            message: aiMessage
+            message: aiMessage,
+            audioUrl: aiMessage.audioUrl
           };
           socket.emit('game-response', gameResponse);
         } catch (llmError: any) {
           console.error('LLM error:', llmError);
           
-          // Create a fallback message for the user
-          const fallbackMessage: Message = {
-            id: uuidv4(),
-            sessionId: currentSessionId,
-            type: 'ai',
-            content: 'Извините, у меня возникли проблемы с генерацией ответа. Пожалуйста, попробуйте еще раз или выберите другую историю.',
-            metadata: {
-              error: true
-            },
-            timestamp: new Date()
-          };
+          // Create a fallback message with TTS
+          const fallbackMessage = await this.gameSessionManager.addAIMessageWithTTS(
+            currentSessionId,
+            'Извините, у меня возникли проблемы с генерацией ответа. Пожалуйста, попробуйте еще раз или выберите другую историю.',
+            { error: true }
+          );
           
-          // Add fallback message to session
-          this.gameSessionManager.addMessage(currentSessionId, fallbackMessage);
-          
-          // Send fallback response
-          const fallbackResponse: GameResponse = {
-            message: fallbackMessage
-          };
-          socket.emit('game-response', fallbackResponse);
+          if (fallbackMessage) {
+            // Send fallback response
+            const fallbackResponse: GameResponse = {
+              message: fallbackMessage,
+              audioUrl: fallbackMessage.audioUrl
+            };
+            socket.emit('game-response', fallbackResponse);
+          }
           
           // Also send error event with details
           this.sendError(socket, 'LLM_ERROR', 'Ошибка генерации ответа ИИ', llmError.message);

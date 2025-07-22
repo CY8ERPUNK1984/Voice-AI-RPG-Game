@@ -63,7 +63,7 @@ describe('Message Component', () => {
   it('shows audio button when audioUrl is present', () => {
     render(<Message message={mockAIMessageWithAudio} />);
     
-    const audioButton = screen.getByTitle('Play audio');
+    const audioButton = screen.getByTitle('Show audio player');
     expect(audioButton).toBeInTheDocument();
     expect(audioButton).toHaveTextContent('🔊');
   });
@@ -104,6 +104,6 @@ describe('Message Component', () => {
   it('does not show audio button when audioUrl is not present', () => {
     render(<Message message={mockUserMessage} />);
     
-    expect(screen.queryByTitle('Play audio')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Show audio player')).not.toBeInTheDocument();
   });
 });

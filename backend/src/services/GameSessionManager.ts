@@ -1,9 +1,15 @@
-import { GameSession, GameContext, Message, Story, AudioSettings } from '../types';
+import { GameSession, GameContext, Message, Story, AudioSettings, TTSService } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { OpenAITTS } from './OpenAITTS';
 
 export class GameSessionManager {
   private sessions: Map<string, GameSession> = new Map();
   private userSessions: Map<string, string> = new Map(); // userId -> sessionId
+  private ttsService: TTSService;
+
+  constructor(ttsService?: TTSService) {
+    this.ttsService = ttsService || new OpenAITTS();
+  }
 
   /**
    * Create a new game session for a user with a specific story
@@ -86,6 +92,44 @@ export class GameSessionManager {
   }
 
   /**
+   * Add AI message with TTS synthesis
+   */
+  async addAIMessageWithTTS(sessionId: string, content: string, metadata: any = {}): Promise<Message | null> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+
+    const message: Message = {
+      id: uuidv4(),
+      sessionId,
+      type: 'ai',
+      content,
+      metadata,
+      timestamp: new Date()
+    };
+
+    // Generate TTS audio if enabled
+    if (session.settings.ttsEnabled && this.ttsService.isAvailable()) {
+      try {
+        const audioUrl = await this.ttsService.synthesizeSpeech(content, {
+          voice: 'alloy', // Default voice, could be configurable
+          speed: session.settings.voiceSpeed,
+          pitch: 1.0
+        });
+        message.audioUrl = audioUrl;
+      } catch (error) {
+        console.error('TTS synthesis failed:', error);
+        // Continue without audio - fallback to text-only
+        message.metadata.ttsError = true;
+      }
+    }
+
+    // Add message to session
+    this.addMessage(sessionId, message);
+    
+    return message;
+  }
+
+  /**
    * Update session settings
    */
   updateSessionSettings(sessionId: string, settings: Partial<AudioSettings>): boolean {
@@ -95,6 +139,33 @@ export class GameSessionManager {
     session.settings = { ...session.settings, ...settings };
     session.updatedAt = new Date();
     return true;
+  }
+
+  /**
+   * Get TTS service availability
+   */
+  isTTSAvailable(): boolean {
+    return this.ttsService.isAvailable();
+  }
+
+  /**
+   * Test TTS synthesis
+   */
+  async testTTS(text: string = 'Hello, this is a test.'): Promise<string | null> {
+    if (!this.ttsService.isAvailable()) {
+      return null;
+    }
+
+    try {
+      return await this.ttsService.synthesizeSpeech(text, {
+        voice: 'alloy',
+        speed: 1.0,
+        pitch: 1.0
+      });
+    } catch (error) {
+      console.error('TTS test failed:', error);
+      return null;
+    }
   }
 
   /**

@@ -2,14 +2,23 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ChatInterfaceProps } from '../types';
 import Message from './Message';
 import { VoiceInput } from './VoiceInput';
+import { TypingIndicator } from './TypingIndicator';
+import { LoadingSpinner } from './LoadingSpinner';
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
-  messages, 
-  onSendMessage, 
-  isLoading 
+const ChatInterface: React.FC<ChatInterfaceProps> = ({
+  messages,
+  onSendMessage,
+  isLoading,
+  onVoiceInput,
+  isRecording = false,
+  onRecordingStateChange,
+  audioSettings
 }) => {
+  // TODO: Implement audioSettings integration for voice input customization
+  // Currently audioSettings is passed but not used - will be implemented in future tasks
+  // Suppress TypeScript warning for now
+  void audioSettings;
   const [inputText, setInputText] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -32,7 +41,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -40,11 +49,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleVoiceInput = (text: string) => {
-    setInputText(text);
+    if (onVoiceInput) {
+      onVoiceInput(text);
+    } else {
+      setInputText(text);
+    }
   };
 
   const handleRecordingStateChange = (recording: boolean) => {
-    setIsRecording(recording);
+    if (onRecordingStateChange) {
+      onRecordingStateChange(recording);
+    }
   };
 
   return (
@@ -58,10 +73,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </div>
 
       {/* Messages Container */}
-      <div 
+      <div
         ref={chatContainerRef}
         className="flex-1 overflow-y-auto px-6 py-4 space-y-2"
         style={{ maxHeight: '60vh' }}
+        data-testid="chat-messages"
       >
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
@@ -76,25 +92,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <Message key={message.id} message={message} />
           ))
         )}
-        
+
         {/* Loading indicator */}
         {isLoading && (
           <div className="flex justify-start mb-4">
             <div className="max-w-xs lg:max-w-md px-4 py-2 rounded-lg bg-gray-700">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-3">
                 <div className="flex-shrink-0 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-sm font-bold">
                   AI
                 </div>
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
+                <TypingIndicator className="text-gray-300" />
               </div>
             </div>
           </div>
         )}
-        
+
         {/* Scroll anchor */}
         <div ref={messagesEndRef} />
       </div>
@@ -106,7 +118,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
               placeholder="Type your message here..."
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
               rows={2}
@@ -119,7 +131,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isLoading ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              <LoadingSpinner size="sm" color="white" />
             ) : (
               'Send'
             )}
@@ -128,7 +140,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div className="mt-2 text-xs text-gray-500">
           Press Enter to send, Shift+Enter for new line
         </div>
-        
+
         {/* Voice Input Section */}
         <div className="mt-4 pt-4 border-t border-gray-700">
           <div className="flex flex-col items-center space-y-2">

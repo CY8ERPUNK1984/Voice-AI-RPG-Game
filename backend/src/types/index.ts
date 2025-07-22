@@ -23,6 +23,7 @@ export interface Message {
     confidence?: number;
     tokens?: number;
     error?: boolean;
+    ttsError?: boolean;
   };
   timestamp: Date;
 }
@@ -65,6 +66,7 @@ export interface LLMService {
 
 export interface TTSService {
   synthesizeSpeech(text: string, options: TTSOptions): Promise<string>;
+  isAvailable(): boolean;
 }
 
 export interface TTSOptions {

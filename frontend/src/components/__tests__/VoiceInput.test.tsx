@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { VoiceInput } from '../VoiceInput';
-import { WebSpeechASR } from '@/services/WebSpeechASR';
+import { HybridASR } from '@/services/HybridASR';
 
-// Mock the WebSpeechASR service
-vi.mock('@/services/WebSpeechASR', () => ({
-  WebSpeechASR: vi.fn()
+// Mock the HybridASR service
+vi.mock('@/services/HybridASR', () => ({
+  HybridASR: vi.fn()
 }));
 
 describe('VoiceInput', () => {
@@ -13,6 +13,7 @@ describe('VoiceInput', () => {
     isAvailable: vi.Mock<[], boolean>;
     startRecording: vi.Mock<[], Promise<void>>;
     stopRecording: vi.Mock<[], Promise<string>>;
+    getAvailableMethods: vi.Mock<[], { webSpeech: boolean; whisper: boolean }>;
     onResult?: (result: string) => void;
     onError?: (error: Error) => void;
   };
@@ -28,9 +29,10 @@ describe('VoiceInput', () => {
       isAvailable: vi.fn(() => true),
       startRecording: vi.fn(() => Promise.resolve()),
       stopRecording: vi.fn(() => Promise.resolve('test result')),
+      getAvailableMethods: vi.fn(() => ({ webSpeech: true, whisper: false })),
     };
 
-    vi.mocked(WebSpeechASR).mockImplementation(() => mockAsrService as any);
+    vi.mocked(HybridASR).mockImplementation(() => mockAsrService as any);
 
     mockProps = {
       onVoiceInput: vi.fn(),

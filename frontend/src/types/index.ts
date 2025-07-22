@@ -62,12 +62,17 @@ export interface AppState {
 export interface StorySelectorProps {
   stories: Story[];
   onStorySelect: (story: Story) => void;
+  isLoading?: boolean;
 }
 
 export interface ChatInterfaceProps {
   messages: Message[];
   onSendMessage: (message: string) => void;
   isLoading: boolean;
+  onVoiceInput?: (text: string) => void;
+  isRecording?: boolean;
+  onRecordingStateChange?: (recording: boolean) => void;
+  audioSettings?: AudioSettings;
 }
 
 export interface VoiceInputProps {
@@ -96,7 +101,7 @@ export interface ErrorState {
 }
 
 export interface ErrorResponse {
-  type: 'ASR_ERROR' | 'LLM_ERROR' | 'TTS_ERROR' | 'VALIDATION_ERROR';
+  type: 'ASR_ERROR' | 'LLM_ERROR' | 'TTS_ERROR' | 'CONNECTION_ERROR' | 'VALIDATION_ERROR';
   message: string;
   details?: any;
   timestamp: Date;
@@ -124,4 +129,19 @@ export interface ASRService {
   stopRecording(): Promise<string>;
   onResult?: (result: string) => void;
   onError?: (error: Error) => void;
+}
+
+// TTS Service Interface
+export interface TTSOptions {
+  voice?: string;
+  speed?: number;
+  pitch?: number;
+  volume?: number;
+}
+
+export interface TTSService {
+  synthesizeSpeech(text: string, options?: TTSOptions): Promise<string>;
+  isAvailable(): boolean;
+  getAvailableVoices(): Promise<SpeechSynthesisVoice[]>;
+  stop(): void;
 }

@@ -25,6 +25,14 @@ export class GameController {
   }
   
   /**
+   * Get the WebSocket server instance
+   * @returns WebSocketServer instance
+   */
+  getWebSocketServer() {
+    return this.webSocketServer;
+  }
+  
+  /**
    * Get all available stories
    * @returns Array of stories
    */
@@ -56,5 +64,17 @@ export class GameController {
    */
   cleanupOldSessions(maxAgeHours: number = 24) {
     return this.gameSessionManager.cleanupOldSessions(maxAgeHours);
+  }
+
+  /**
+   * Get audio file path for serving
+   * @param filename Audio filename
+   * @returns Full path to audio file
+   */
+  getAudioFilePath(filename: string): string {
+    // This method should delegate to the TTS service
+    // For now, we'll construct the path directly
+    const path = require('path');
+    return path.join(process.cwd(), 'temp', 'audio', filename);
   }
 }

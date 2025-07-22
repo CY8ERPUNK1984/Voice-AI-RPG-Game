@@ -1,21 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { VoiceInputProps } from '@/types';
-import { WebSpeechASR } from '@/services/WebSpeechASR';
+import { HybridASR } from '@/services/HybridASR';
+import { LoadingSpinner } from './LoadingSpinner';
 
 export const VoiceInput: React.FC<VoiceInputProps> = ({
   onVoiceInput,
   isRecording,
   onRecordingStateChange,
 }) => {
-  const [asrService] = useState(() => new WebSpeechASR());
+  const [asrService] = useState(() => new HybridASR());
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [availableMethods, setAvailableMethods] = useState({ webSpeech: false, whisper: false });
   const mountedRef = useRef(true);
 
   useEffect(() => {
     // Check if ASR is supported
     setIsSupported(asrService.isAvailable());
+    setAvailableMethods(asrService.getAvailableMethods());
 
     // Setup ASR event handlers
     asrService.onResult = (result: string) => {
@@ -134,7 +137,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
       {/* Processing indicator */}
       {isProcessing && !isRecording && (
         <div className="flex items-center space-x-2 text-blue-500">
-          <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <LoadingSpinner size="sm" color="blue" />
           <span className="text-sm">Обработка речи...</span>
         </div>
       )}
@@ -151,7 +154,18 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({
       {!isSupported && (
         <div className="text-amber-600 text-sm text-center max-w-md bg-amber-50 p-3 rounded-lg">
           <p className="font-medium">Голосовой ввод недоступен</p>
-          <p>Ваш браузер не поддерживает Web Speech API. Попробуйте использовать Chrome, Edge или Safari.</p>
+          <p>Ваш браузер не поддерживает голосовые технологии. Попробуйте использовать современный браузер.</p>
+        </div>
+      )}
+
+      {/* ASR methods info */}
+      {isSupported && (
+        <div className="text-xs text-gray-500 text-center max-w-md">
+          <p>
+            Доступно: {availableMethods.webSpeech && 'Web Speech API'} 
+            {availableMethods.webSpeech && availableMethods.whisper && ' + '}
+            {availableMethods.whisper && 'Whisper API (резерв)'}
+          </p>
         </div>
       )}
     </div>

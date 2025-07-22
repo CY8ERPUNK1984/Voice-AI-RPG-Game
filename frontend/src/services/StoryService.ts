@@ -8,6 +8,7 @@ export class StoryService {
     // Convert JSON data to Story objects with proper Date objects
     this.stories = storiesData.map(story => ({
       ...story,
+      genre: story.genre as Story['genre'],
       createdAt: new Date(story.createdAt),
       updatedAt: new Date(story.updatedAt)
     }));

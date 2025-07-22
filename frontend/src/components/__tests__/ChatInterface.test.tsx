@@ -151,7 +151,7 @@ describe('ChatInterface Component', () => {
     );
 
     const textarea = screen.getByPlaceholderText('Type your message here...');
-    const sendButton = screen.getByRole('button');
+    const sendButton = screen.getByRole('button', { name: /loading/i });
 
     expect(textarea).toBeDisabled();
     expect(sendButton).toBeDisabled();
