@@ -2,9 +2,30 @@ import { OpenAI } from 'openai';
 import { ASRService, ErrorResponse } from '../types';
 import { globalRateLimiter } from './RateLimiter';
 import * as dotenv from 'dotenv';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Load environment variables
 dotenv.config();
+
+interface AudioOptimizationOptions {
+  enableCompression: boolean;
+  targetBitrate: number; // kbps
+  maxDuration: number; // seconds
+  enableSilenceTrimming: boolean;
+  enableNoiseReduction: boolean;
+  enableVolumeNormalization: boolean;
+}
+
+interface AudioMetrics {
+  originalSize: number;
+  processedSize: number;
+  compressionRatio: number;
+  processingTime: number;
+  format: string;
+  duration?: number;
+  sampleRate?: number;
+}
 
 /**
  * OpenAI Whisper ASR service implementation with enhanced error handling
@@ -20,6 +41,16 @@ export class WhisperASR implements ASRService {
   private requestTimeout: number = 60000; // 60 seconds
   private enableWebSpeechFallback: boolean = true;
   private healthStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+  private audioOptimization: AudioOptimizationOptions = {
+    enableCompression: true,
+    targetBitrate: 64, // 64 kbps for speech
+    maxDuration: 300, // 5 minutes max
+    enableSilenceTrimming: true,
+    enableNoiseReduction: false, // Disabled by default as it requires external libraries
+    enableVolumeNormalization: false // Disabled by default as it requires external libraries
+  };
+  private audioBufferPool: Buffer[] = [];
+  private maxPoolSize: number = 10;
 
   constructor(apiKey?: string) {
     // Use provided API key or get from environment variables
@@ -45,8 +76,11 @@ export class WhisperASR implements ASRService {
       throw new Error('Invalid audio input');
     }
 
+    // Process audio in chunks if needed for large files
+    const chunkedAudio = await this.processAudioInChunks(audioBlob);
+    
     // Preprocess audio if needed
-    const processedAudio = await this.preprocessAudio(audioBlob);
+    const processedAudio = await this.preprocessAudio(chunkedAudio);
 
     let attempts = 0;
     let lastError: any;
@@ -250,17 +284,181 @@ export class WhisperASR implements ASRService {
   }
 
   /**
-   * Preprocess audio for better transcription quality
+   * Preprocess audio for better transcription quality and optimization
    */
   private async preprocessAudio(audioBlob: Buffer): Promise<Buffer> {
-    // For now, return the original audio
-    // In the future, we could add audio processing like:
-    // - Noise reduction
-    // - Volume normalization
-    // - Format conversion
-    // - Silence trimming
+    const startTime = Date.now();
+    let processedAudio = audioBlob;
+    const metrics: AudioMetrics = {
+      originalSize: audioBlob.length,
+      processedSize: audioBlob.length,
+      compressionRatio: 1.0,
+      processingTime: 0,
+      format: 'webm'
+    };
+
+    try {
+      // Step 1: Validate audio format and extract metadata
+      const audioInfo = this.analyzeAudioBuffer(audioBlob);
+      metrics.duration = audioInfo.estimatedDuration;
+      metrics.sampleRate = audioInfo.estimatedSampleRate;
+
+      // Step 2: Check duration limits
+      if (this.audioOptimization.maxDuration > 0 && audioInfo.estimatedDuration > this.audioOptimization.maxDuration) {
+        console.warn(`Audio duration ${audioInfo.estimatedDuration}s exceeds limit ${this.audioOptimization.maxDuration}s`);
+        // In a real implementation, you would trim the audio here
+      }
+
+      // Step 3: Apply compression if enabled and beneficial
+      if (this.audioOptimization.enableCompression && audioBlob.length > 100 * 1024) { // Only compress if > 100KB
+        processedAudio = await this.compressAudio(processedAudio);
+        metrics.processedSize = processedAudio.length;
+        metrics.compressionRatio = metrics.originalSize / metrics.processedSize;
+      }
+
+      // Step 4: Apply silence trimming if enabled
+      if (this.audioOptimization.enableSilenceTrimming) {
+        processedAudio = await this.trimSilence(processedAudio);
+        metrics.processedSize = processedAudio.length;
+      }
+
+      // Step 5: Apply noise reduction if enabled (placeholder)
+      if (this.audioOptimization.enableNoiseReduction) {
+        processedAudio = await this.reduceNoise(processedAudio);
+        metrics.processedSize = processedAudio.length;
+      }
+
+      // Step 6: Apply volume normalization if enabled (placeholder)
+      if (this.audioOptimization.enableVolumeNormalization) {
+        processedAudio = await this.normalizeVolume(processedAudio);
+      }
+
+      metrics.processingTime = Date.now() - startTime;
+
+      // Log optimization results
+      if (metrics.compressionRatio > 1.1) {
+        console.log(`Audio optimized: ${metrics.originalSize} -> ${metrics.processedSize} bytes (${metrics.compressionRatio.toFixed(2)}x compression) in ${metrics.processingTime}ms`);
+      }
+
+      return processedAudio;
+    } catch (error) {
+      console.warn('Audio preprocessing failed, using original audio:', error);
+      return audioBlob;
+    }
+  }
+
+  /**
+   * Analyze audio buffer to extract basic information
+   */
+  private analyzeAudioBuffer(audioBlob: Buffer): { estimatedDuration: number; estimatedSampleRate: number; format: string } {
+    // This is a simplified analysis - in a real implementation you would:
+    // 1. Parse the audio file header to get actual metadata
+    // 2. Use libraries like node-ffmpeg or similar for proper audio analysis
     
-    return audioBlob;
+    // For WebM/Opus audio, estimate based on file size
+    // Typical WebM/Opus: ~8-16 kbps for speech
+    const estimatedBitrate = 12; // kbps
+    const estimatedDuration = (audioBlob.length * 8) / (estimatedBitrate * 1000);
+    
+    return {
+      estimatedDuration: Math.max(0.1, estimatedDuration), // At least 0.1 seconds
+      estimatedSampleRate: 48000, // WebM typically uses 48kHz
+      format: 'webm'
+    };
+  }
+
+  /**
+   * Compress audio data
+   */
+  private async compressAudio(audioBlob: Buffer): Promise<Buffer> {
+    // This is a placeholder implementation
+    // In a real implementation, you would:
+    // 1. Use ffmpeg or similar to re-encode at lower bitrate
+    // 2. Convert to more efficient formats if needed
+    // 3. Apply audio-specific compression techniques
+    
+    // For now, we'll simulate compression by returning the original
+    // but in practice you might use libraries like:
+    // - node-ffmpeg
+    // - fluent-ffmpeg
+    // - @ffmpeg-installer/ffmpeg
+    
+    try {
+      // Simulate compression processing time
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Return original for now - real implementation would compress
+      return audioBlob;
+    } catch (error) {
+      console.warn('Audio compression failed:', error);
+      return audioBlob;
+    }
+  }
+
+  /**
+   * Trim silence from beginning and end of audio
+   */
+  private async trimSilence(audioBlob: Buffer): Promise<Buffer> {
+    // This is a placeholder implementation
+    // In a real implementation, you would:
+    // 1. Analyze audio waveform to detect silence
+    // 2. Trim silent portions from start and end
+    // 3. Use audio processing libraries for accurate detection
+    
+    try {
+      // Simulate silence trimming processing time
+      await new Promise(resolve => setTimeout(resolve, 5));
+      
+      // For now, return original - real implementation would trim silence
+      return audioBlob;
+    } catch (error) {
+      console.warn('Silence trimming failed:', error);
+      return audioBlob;
+    }
+  }
+
+  /**
+   * Apply noise reduction to audio
+   */
+  private async reduceNoise(audioBlob: Buffer): Promise<Buffer> {
+    // This is a placeholder implementation
+    // In a real implementation, you would:
+    // 1. Apply spectral subtraction or Wiener filtering
+    // 2. Use libraries like Web Audio API processing
+    // 3. Implement or use existing noise reduction algorithms
+    
+    try {
+      // Simulate noise reduction processing time
+      await new Promise(resolve => setTimeout(resolve, 20));
+      
+      // Return original for now - real implementation would reduce noise
+      return audioBlob;
+    } catch (error) {
+      console.warn('Noise reduction failed:', error);
+      return audioBlob;
+    }
+  }
+
+  /**
+   * Normalize audio volume
+   */
+  private async normalizeVolume(audioBlob: Buffer): Promise<Buffer> {
+    // This is a placeholder implementation
+    // In a real implementation, you would:
+    // 1. Analyze audio levels and peak detection
+    // 2. Apply gain adjustment to normalize volume
+    // 3. Use audio processing libraries for accurate normalization
+    
+    try {
+      // Simulate volume normalization processing time
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Return original for now - real implementation would normalize volume
+      return audioBlob;
+    } catch (error) {
+      console.warn('Volume normalization failed:', error);
+      return audioBlob;
+    }
   }
 
   /**
@@ -524,6 +722,85 @@ export class WhisperASR implements ASRService {
   }
 
   /**
+   * Configure audio optimization settings
+   */
+  configureAudioOptimization(options: Partial<AudioOptimizationOptions>): void {
+    this.audioOptimization = { ...this.audioOptimization, ...options };
+  }
+
+  /**
+   * Get audio optimization settings
+   */
+  getAudioOptimizationSettings(): AudioOptimizationOptions {
+    return { ...this.audioOptimization };
+  }
+
+  /**
+   * Get or create buffer from pool
+   */
+  private getBufferFromPool(size: number): Buffer {
+    // Try to find a suitable buffer from the pool
+    const suitableBufferIndex = this.audioBufferPool.findIndex(buffer => buffer.length >= size);
+    
+    if (suitableBufferIndex !== -1) {
+      const buffer = this.audioBufferPool.splice(suitableBufferIndex, 1)[0];
+      return buffer.subarray(0, size);
+    }
+    
+    // Create new buffer if none suitable found
+    return Buffer.allocUnsafe(size);
+  }
+
+  /**
+   * Return buffer to pool for reuse
+   */
+  private returnBufferToPool(buffer: Buffer): void {
+    if (this.audioBufferPool.length < this.maxPoolSize && buffer.length > 1024) {
+      // Only pool buffers larger than 1KB
+      this.audioBufferPool.push(buffer);
+    }
+  }
+
+  /**
+   * Process audio in chunks for large files
+   */
+  private async processAudioInChunks(audioBlob: Buffer, chunkSize: number = 10 * 1024 * 1024): Promise<Buffer> {
+    if (audioBlob.length <= chunkSize) {
+      return audioBlob;
+    }
+
+    // For very large audio files, we would need to:
+    // 1. Split into overlapping chunks
+    // 2. Process each chunk separately
+    // 3. Merge transcriptions with proper timing
+    // 4. Handle chunk boundaries carefully
+    
+    console.warn(`Large audio file (${audioBlob.length} bytes) - chunked processing not fully implemented`);
+    
+    // For now, just return the original (truncated if too large)
+    const maxSize = 25 * 1024 * 1024; // Whisper's 25MB limit
+    if (audioBlob.length > maxSize) {
+      console.warn(`Truncating audio from ${audioBlob.length} to ${maxSize} bytes`);
+      return audioBlob.subarray(0, maxSize);
+    }
+    
+    return audioBlob;
+  }
+
+  /**
+   * Cleanup audio buffers and resources
+   */
+  cleanup(): void {
+    // Clear buffer pool
+    this.audioBufferPool = [];
+    
+    // Reset health status
+    this.healthStatus = 'healthy';
+    
+    console.log('WhisperASR cleanup completed');
+  }
+
+  /**
    * Get transcription statistics
    */
   getStats(): { 
@@ -532,13 +809,56 @@ export class WhisperASR implements ASRService {
     timeout: number; 
     fallbackEnabled: boolean;
     healthStatus: string;
+    audioOptimization: AudioOptimizationOptions;
+    bufferPoolSize: number;
   } {
     return {
       model: this.model,
       maxRetries: this.maxRetries,
       timeout: this.requestTimeout,
       fallbackEnabled: this.enableWebSpeechFallback,
-      healthStatus: this.healthStatus
+      healthStatus: this.healthStatus,
+      audioOptimization: this.audioOptimization,
+      bufferPoolSize: this.audioBufferPool.length
     };
+  }
+
+  /**
+   * Perform maintenance operations
+   */
+  async performMaintenance(): Promise<{ 
+    buffersCleared: number; 
+    optimizationStats: AudioOptimizationOptions;
+    errors: string[] 
+  }> {
+    const errors: string[] = [];
+    const buffersCleared = this.audioBufferPool.length;
+    
+    try {
+      // Clear buffer pool
+      this.audioBufferPool = [];
+      
+      // Reset health status if no recent errors
+      if (this.healthStatus === 'degraded') {
+        this.healthStatus = 'healthy';
+      }
+      
+    } catch (error) {
+      errors.push(`Maintenance error: ${error}`);
+    }
+    
+    return {
+      buffersCleared,
+      optimizationStats: this.audioOptimization,
+      errors
+    };
+  }
+
+  /**
+   * Shutdown service and cleanup resources
+   */
+  async shutdown(): Promise<void> {
+    this.cleanup();
+    console.log('WhisperASR service shutdown complete');
   }
 }

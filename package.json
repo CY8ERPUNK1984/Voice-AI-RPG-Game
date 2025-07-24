@@ -1,30 +1,57 @@
 {
   "name": "voice-ai-rpg-game",
   "version": "1.0.0",
+  "description": "Voice-controlled AI RPG game with real-time interaction",
+  "keywords": ["voice", "ai", "rpg", "game", "websocket", "openai"],
+  "author": "Voice AI RPG Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev": "concurrently --kill-others-on-fail \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "build": "npm run build:backend && npm run build:frontend",
     "build:backend": "cd backend && npm run build",
     "build:frontend": "cd frontend && npm run build",
+    "build:verify": "npm run build && node scripts/build-verify.js",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "npm run test:frontend && npm run test:backend",
-    "test:frontend": "cd frontend && npm test",
-    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && npm run test -- --run",
+    "test:backend": "cd backend && npm run test -- --run",
+    "test:watch": "concurrently \"npm run test:frontend:watch\" \"npm run test:backend:watch\"",
+    "test:frontend:watch": "cd frontend && npm run test",
+    "test:backend:watch": "cd backend && npm run test",
+    "test:build": "npm run test:frontend:build && npm run test:backend:build",
+    "test:frontend:build": "cd frontend && npm run build && npm run preview &",
+    "test:backend:build": "cd backend && npm run build && node dist/index.js &",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "install:all": "npm ci && cd frontend && npm ci && cd ../backend && npm ci",
+    "install:dev": "npm install && cd frontend && npm install && cd ../backend && npm install",
     "start": "npm run build && concurrently \"npm run start:backend\" \"npm run start:frontend\"",
     "start:backend": "cd backend && npm start",
     "start:frontend": "cd frontend && npm run preview",
     "lint": "npm run lint:frontend && npm run lint:backend",
+    "lint:fix": "npm run lint:frontend:fix && npm run lint:backend:fix",
     "lint:frontend": "cd frontend && npm run lint",
+    "lint:frontend:fix": "cd frontend && npm run lint:fix",
     "lint:backend": "cd backend && npm run lint",
+    "lint:backend:fix": "cd backend && npm run lint:fix",
+    "type-check": "npm run type-check:frontend && npm run type-check:backend",
+    "type-check:frontend": "cd frontend && npx tsc --noEmit",
+    "type-check:backend": "cd backend && npx tsc --noEmit",
+    "audit": "npm audit && cd frontend && npm audit && cd ../backend && npm audit",
+    "audit:fix": "npm audit fix && cd frontend && npm audit fix && cd ../backend && npm audit fix",
     "clean": "rm -rf frontend/dist backend/dist node_modules frontend/node_modules backend/node_modules",
-    "reset": "npm run clean && npm run install:all"
+    "clean:cache": "npm cache clean --force && cd frontend && npm cache clean --force && cd ../backend && npm cache clean --force",
+    "reset": "npm run clean && npm run install:all",
+    "setup": "npm run install:all && npm run build && npm run test:unit",
+    "health-check": "npm run type-check && npm run lint && npm run test:unit"
   },
   "dependencies": {
     "mcp-ssh": "^1.0.1"
@@ -32,5 +59,9 @@
   "devDependencies": {
     "@playwright/test": "^1.54.1",
     "concurrently": "^8.2.2"
-  }
+  },
+  "workspaces": [
+    "frontend",
+    "backend"
+  ]
 }

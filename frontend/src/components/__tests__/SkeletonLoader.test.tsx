@@ -1,61 +1,80 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { SkeletonLoader, StorySkeleton } from '../SkeletonLoader';
+import { SkeletonLoader } from '../SkeletonLoader';
 
 describe('SkeletonLoader', () => {
-  it('renders with default props', () => {
-    render(<SkeletonLoader />);
-    const skeleton = screen.getByRole('status');
-    expect(skeleton).toBeInTheDocument();
-    expect(skeleton).toHaveAttribute('aria-label', 'Loading content');
+  it('renders text variant by default', () => {
+    const { container } = render(<SkeletonLoader />);
+    
+    const skeleton = container.firstChild as HTMLElement;
+    expect(skeleton).toHaveClass('bg-gray-700', 'animate-pulse', 'rounded', 'h-4');
   });
 
-  it('applies default classes', () => {
-    render(<SkeletonLoader />);
-    const skeleton = screen.getByRole('status');
-    expect(skeleton).toHaveClass('w-full', 'h-4', 'bg-gray-200', 'rounded', 'animate-pulse');
+  it('renders circular variant correctly', () => {
+    const { container } = render(<SkeletonLoader variant="circular" />);
+    
+    const skeleton = container.firstChild as HTMLElement;
+    expect(skeleton).toHaveClass('rounded-full');
+  });
+
+  it('renders rectangular variant correctly', () => {
+    const { container } = render(<SkeletonLoader variant="rectangular" />);
+    
+    const skeleton = container.firstChild as HTMLElement;
+    expect(skeleton).toHaveClass('rounded-md');
+  });
+
+  it('renders message variant with avatar and text lines', () => {
+    const { container } = render(<SkeletonLoader variant="message" />);
+    
+    // Should have avatar skeleton
+    const avatar = container.querySelector('.w-8.h-8.rounded-full');
+    expect(avatar).toBeInTheDocument();
+    
+    // Should have text line skeletons
+    const textLines = container.querySelectorAll('.h-4.rounded');
+    expect(textLines).toHaveLength(2);
+  });
+
+  it('renders multiple lines when specified', () => {
+    const { container } = render(<SkeletonLoader lines={3} />);
+    
+    const skeletons = container.querySelectorAll('.bg-gray-700');
+    expect(skeletons).toHaveLength(3);
   });
 
   it('applies custom width and height', () => {
-    render(<SkeletonLoader width="w-1/2" height="h-8" />);
-    const skeleton = screen.getByRole('status');
-    expect(skeleton).toHaveClass('w-1/2', 'h-8');
+    const { container } = render(
+      <SkeletonLoader width="200px" height="50px" />
+    );
+    
+    const skeleton = container.firstChild as HTMLElement;
+    expect(skeleton).toHaveStyle({
+      width: '200px',
+      height: '50px'
+    });
   });
 
   it('applies custom className', () => {
-    render(<SkeletonLoader className="custom-class" />);
-    const skeleton = screen.getByRole('status');
-    expect(skeleton).toHaveClass('custom-class');
-  });
-});
-
-describe('StorySkeleton', () => {
-  it('renders default number of skeleton cards', () => {
-    const { container } = render(<StorySkeleton />);
-    const gridContainer = container.querySelector('.grid');
-    expect(gridContainer).toHaveClass('grid', 'grid-cols-1', 'md:grid-cols-2', 'lg:grid-cols-3', 'gap-6');
+    const { container } = render(<SkeletonLoader className="custom-class" />);
     
-    const cards = gridContainer?.children;
-    expect(cards).toHaveLength(6); // Default count
+    expect(container.firstChild).toHaveClass('custom-class');
   });
 
-  it('renders custom number of skeleton cards', () => {
-    const { container } = render(<StorySkeleton count={3} />);
-    const gridContainer = container.querySelector('.grid');
-    const cards = gridContainer?.children;
-    expect(cards).toHaveLength(3);
+  it('can disable animation', () => {
+    const { container } = render(<SkeletonLoader animated={false} />);
+    
+    const skeleton = container.firstChild as HTMLElement;
+    expect(skeleton).not.toHaveClass('animate-pulse');
   });
 
-  it('renders skeleton elements in correct structure', () => {
-    const { container } = render(<StorySkeleton count={1} />);
-    const card = container.querySelector('.bg-white');
+  it('makes last line shorter in multi-line mode', () => {
+    const { container } = render(<SkeletonLoader lines={3} />);
     
-    // Check card structure
-    expect(card).toHaveClass('bg-white', 'rounded-lg', 'shadow-md', 'border', 'border-gray-200', 'p-6');
+    const skeletons = container.querySelectorAll('.bg-gray-700');
+    const lastSkeleton = skeletons[skeletons.length - 1] as HTMLElement;
     
-    // Should have multiple skeleton elements for different parts
-    const skeletons = screen.getAllByRole('status');
-    expect(skeletons.length).toBeGreaterThan(1); // Genre, title, description, button
+    expect(lastSkeleton).toHaveStyle({ width: '75%' });
   });
 });

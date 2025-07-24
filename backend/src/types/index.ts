@@ -77,10 +77,39 @@ export interface TTSOptions {
 
 // Error handling
 export interface ErrorResponse {
-  type: 'ASR_ERROR' | 'LLM_ERROR' | 'TTS_ERROR' | 'VALIDATION_ERROR';
+  type: 'ASR_ERROR' | 'LLM_ERROR' | 'TTS_ERROR' | 'CONNECTION_ERROR' | 'VALIDATION_ERROR' | 'RATE_LIMIT_ERROR' | 'AUTHENTICATION_ERROR' | 'SYSTEM_ERROR';
   message: string;
   details?: any;
   timestamp: Date;
+}
+
+export interface AppError {
+  id: string;
+  type: 'ASR_ERROR' | 'LLM_ERROR' | 'TTS_ERROR' | 'CONNECTION_ERROR' | 'VALIDATION_ERROR' | 'RATE_LIMIT_ERROR' | 'AUTHENTICATION_ERROR' | 'SYSTEM_ERROR';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  message: string;
+  originalError?: Error;
+  context: Record<string, any>;
+  timestamp: Date;
+  recoverable: boolean;
+  retryable: boolean;
+  userId?: string;
+  sessionId?: string;
+  requestId?: string;
+}
+
+export interface RecoveryStep {
+  action: string;
+  description: string;
+  autoExecute: boolean;
+  priority: number;
+}
+
+export interface RecoveryPlan {
+  steps: RecoveryStep[];
+  autoExecute: boolean;
+  userAction?: string;
+  estimatedTime?: number;
 }
 
 // WebSocket Events

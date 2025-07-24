@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
 import { WebSpeechTTS } from '../WebSpeechTTS';
 
 // Mock the Web Speech API
@@ -23,25 +23,74 @@ const mockSpeechSynthesisUtterance = vi.fn().mockImplementation((text: string) =
   onerror: null as any
 }));
 
-// Setup global mocks
-Object.defineProperty(window, 'speechSynthesis', {
-  value: mockSpeechSynthesis,
-  writable: true
-});
+// Store original values for cleanup
+let originalSpeechSynthesis: any;
+let originalSpeechSynthesisUtterance: any;
 
-Object.defineProperty(window, 'SpeechSynthesisUtterance', {
-  value: mockSpeechSynthesisUtterance,
-  writable: true
-});
+// Helper function to setup Web Speech API mocks
+function setupWebSpeechAPIMocks() {
+  Object.defineProperty(window, 'speechSynthesis', {
+    value: mockSpeechSynthesis,
+    writable: true,
+    configurable: true
+  });
+
+  Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+    value: mockSpeechSynthesisUtterance,
+    writable: true,
+    configurable: true
+  });
+}
+
+// Helper function to remove Web Speech API mocks
+function removeWebSpeechAPIMocks() {
+  Object.defineProperty(window, 'speechSynthesis', {
+    value: undefined,
+    writable: true,
+    configurable: true
+  });
+
+  Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+    value: undefined,
+    writable: true,
+    configurable: true
+  });
+}
 
 describe('WebSpeechTTS', () => {
   let ttsService: WebSpeechTTS;
 
   beforeEach(() => {
+    // Store original values
+    originalSpeechSynthesis = (window as any).speechSynthesis;
+    originalSpeechSynthesisUtterance = (window as any).SpeechSynthesisUtterance;
+    
+    // Setup mocks
+    setupWebSpeechAPIMocks();
+    
     vi.clearAllMocks();
     mockSpeechSynthesis.speaking = false;
     mockSpeechSynthesis.paused = false;
     ttsService = new WebSpeechTTS();
+  });
+
+  afterEach(() => {
+    // Restore original values
+    if (originalSpeechSynthesis !== undefined) {
+      Object.defineProperty(window, 'speechSynthesis', {
+        value: originalSpeechSynthesis,
+        writable: true,
+        configurable: true
+      });
+    }
+    
+    if (originalSpeechSynthesisUtterance !== undefined) {
+      Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+        value: originalSpeechSynthesisUtterance,
+        writable: true,
+        configurable: true
+      });
+    }
   });
 
   describe('isAvailable', () => {
@@ -50,15 +99,49 @@ describe('WebSpeechTTS', () => {
     });
 
     it('should return false when speechSynthesis is not available', () => {
-      // Temporarily remove speechSynthesis
-      const originalSpeechSynthesis = (window as any).speechSynthesis;
-      delete (window as any).speechSynthesis;
+      // Remove speechSynthesis using proper mock cleanup
+      removeWebSpeechAPIMocks();
       
       const newTtsService = new WebSpeechTTS();
       expect(newTtsService.isAvailable()).toBe(false);
       
-      // Restore speechSynthesis
-      (window as any).speechSynthesis = originalSpeechSynthesis;
+      // Restore mocks for other tests
+      setupWebSpeechAPIMocks();
+    });
+
+    it('should return false when speechSynthesis is null', () => {
+      Object.defineProperty(window, 'speechSynthesis', {
+        value: null,
+        writable: true,
+        configurable: true
+      });
+      
+      const newTtsService = new WebSpeechTTS();
+      expect(newTtsService.isAvailable()).toBe(false);
+      
+      // Restore mocks
+      setupWebSpeechAPIMocks();
+    });
+
+    it('should handle feature detection in different browser environments', () => {
+      // Test Chrome-like environment
+      Object.defineProperty(window, 'speechSynthesis', {
+        value: mockSpeechSynthesis,
+        writable: true,
+        configurable: true
+      });
+      expect(new WebSpeechTTS().isAvailable()).toBe(true);
+
+      // Test environment without Web Speech API
+      Object.defineProperty(window, 'speechSynthesis', {
+        value: undefined,
+        writable: true,
+        configurable: true
+      });
+      expect(new WebSpeechTTS().isAvailable()).toBe(false);
+
+      // Restore mocks
+      setupWebSpeechAPIMocks();
     });
   });
 
@@ -304,6 +387,249 @@ describe('WebSpeechTTS', () => {
       ttsService.resume();
       
       expect(mockSpeechSynthesis.resume).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fallback mechanism testing', () => {
+    it('should handle graceful degradation when synthesis fails', async () => {
+      const text = 'Test fallback';
+      
+      // Mock synthesis failure
+      mockSpeechSynthesis.speak.mockImplementation((utterance: any) => {
+        setTimeout(() => {
+          if (utterance.onerror) {
+            utterance.onerror({ error: 'synthesis-unavailable' });
+          }
+        }, 10);
+      });
+
+      await expect(ttsService.synthesizeSpeech(text)).rejects.toThrow(
+        'Speech synthesis error: synthesis-unavailable'
+      );
+    });
+
+    it('should handle network-related synthesis failures', async () => {
+      const text = 'Network test';
+      
+      mockSpeechSynthesis.speak.mockImplementation((utterance: any) => {
+        setTimeout(() => {
+          if (utterance.onerror) {
+            utterance.onerror({ error: 'network' });
+          }
+        }, 10);
+      });
+
+      await expect(ttsService.synthesizeSpeech(text)).rejects.toThrow(
+        'Speech synthesis error: network'
+      );
+    });
+
+    it('should handle voice loading failures gracefully', async () => {
+      const text = 'Voice loading test';
+      
+      // Mock getVoices to return empty array (voices not loaded)
+      mockSpeechSynthesis.getVoices.mockReturnValue([]);
+      
+      mockSpeechSynthesis.speak.mockImplementation((utterance: any) => {
+        setTimeout(() => {
+          if (utterance.onend) {
+            utterance.onend();
+          }
+        }, 10);
+      });
+
+      // Should still work even without voices loaded
+      const result = await ttsService.synthesizeSpeech(text, { voice: 'NonExistentVoice' });
+      expect(result).toBe('Speech synthesis completed');
+    });
+
+    it('should handle browser compatibility issues', async () => {
+      // Test with minimal speechSynthesis implementation
+      const minimalSynthesis = {
+        speak: vi.fn(),
+        cancel: vi.fn(),
+        getVoices: vi.fn().mockReturnValue([]),
+        speaking: false,
+        paused: false
+      };
+
+      Object.defineProperty(window, 'speechSynthesis', {
+        value: minimalSynthesis,
+        writable: true,
+        configurable: true
+      });
+
+      const compatTtsService = new WebSpeechTTS();
+      expect(compatTtsService.isAvailable()).toBe(true);
+
+      // Restore mocks
+      setupWebSpeechAPIMocks();
+    });
+  });
+
+  describe('service availability detection', () => {
+    it('should detect service availability in different environments', () => {
+      // Test modern browser environment
+      const modernSynthesis = {
+        ...mockSpeechSynthesis,
+        getVoices: vi.fn().mockReturnValue([
+          { name: 'Voice 1', lang: 'en-US' },
+          { name: 'Voice 2', lang: 'en-GB' }
+        ])
+      };
+
+      Object.defineProperty(window, 'speechSynthesis', {
+        value: modernSynthesis,
+        writable: true,
+        configurable: true
+      });
+
+      const modernTts = new WebSpeechTTS();
+      expect(modernTts.isAvailable()).toBe(true);
+
+      // Test legacy browser environment (no speechSynthesis)
+      removeWebSpeechAPIMocks();
+      const legacyTts = new WebSpeechTTS();
+      expect(legacyTts.isAvailable()).toBe(false);
+
+      // Restore mocks
+      setupWebSpeechAPIMocks();
+    });
+
+    it('should handle partial Web Speech API implementations', () => {
+      // Test environment with speechSynthesis but no SpeechSynthesisUtterance
+      Object.defineProperty(window, 'speechSynthesis', {
+        value: mockSpeechSynthesis,
+        writable: true,
+        configurable: true
+      });
+
+      Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+        value: undefined,
+        writable: true,
+        configurable: true
+      });
+
+      // Service should still be considered available if speechSynthesis exists
+      const partialTts = new WebSpeechTTS();
+      expect(partialTts.isAvailable()).toBe(true);
+
+      // Restore mocks
+      setupWebSpeechAPIMocks();
+    });
+
+    it('should validate service health before synthesis', async () => {
+      const text = 'Health check test';
+      
+      // Mock healthy service
+      mockSpeechSynthesis.speak.mockImplementation((utterance: any) => {
+        setTimeout(() => {
+          if (utterance.onend) {
+            utterance.onend();
+          }
+        }, 10);
+      });
+
+      expect(ttsService.isAvailable()).toBe(true);
+      const result = await ttsService.synthesizeSpeech(text);
+      expect(result).toBe('Speech synthesis completed');
+    });
+
+    it('should handle service unavailability during runtime', async () => {
+      const text = 'Runtime unavailability test';
+      
+      // Initially available
+      expect(ttsService.isAvailable()).toBe(true);
+      
+      // Simulate service becoming unavailable
+      Object.defineProperty(window, 'speechSynthesis', {
+        value: null,
+        writable: true,
+        configurable: true
+      });
+
+      // Create new instance to test runtime availability
+      const runtimeTts = new WebSpeechTTS();
+      expect(runtimeTts.isAvailable()).toBe(false);
+      
+      await expect(runtimeTts.synthesizeSpeech(text)).rejects.toThrow(
+        'Speech synthesis not available'
+      );
+
+      // Restore mocks
+      setupWebSpeechAPIMocks();
+    });
+
+    it('should provide detailed availability information', () => {
+      // Test with full feature support
+      expect(ttsService.isAvailable()).toBe(true);
+      expect(typeof ttsService.getAvailableVoices).toBe('function');
+      expect(typeof ttsService.synthesizeSpeech).toBe('function');
+      expect(typeof ttsService.stop).toBe('function');
+      expect(typeof ttsService.pause).toBe('function');
+      expect(typeof ttsService.resume).toBe('function');
+      expect(typeof ttsService.isSpeaking).toBe('function');
+      expect(typeof ttsService.isPaused).toBe('function');
+    });
+  });
+
+  describe('error recovery and resilience', () => {
+    it('should recover from temporary synthesis failures', async () => {
+      const text = 'Recovery test';
+      let callCount = 0;
+      
+      mockSpeechSynthesis.speak.mockImplementation((utterance: any) => {
+        callCount++;
+        setTimeout(() => {
+          if (callCount === 1) {
+            // First call fails
+            if (utterance.onerror) {
+              utterance.onerror({ error: 'temporary-failure' });
+            }
+          } else {
+            // Second call succeeds
+            if (utterance.onend) {
+              utterance.onend();
+            }
+          }
+        }, 10);
+      });
+
+      // First attempt should fail
+      await expect(ttsService.synthesizeSpeech(text)).rejects.toThrow(
+        'Speech synthesis error: temporary-failure'
+      );
+
+      // Second attempt should succeed
+      const result = await ttsService.synthesizeSpeech(text);
+      expect(result).toBe('Speech synthesis completed');
+    });
+
+    it('should handle concurrent synthesis requests gracefully', async () => {
+      const text1 = 'First request';
+      const text2 = 'Second request';
+      
+      mockSpeechSynthesis.speaking = true; // Simulate ongoing speech
+      
+      mockSpeechSynthesis.speak.mockImplementation((utterance: any) => {
+        setTimeout(() => {
+          if (utterance.onend) {
+            utterance.onend();
+          }
+        }, 10);
+      });
+
+      // Start first request
+      const promise1 = ttsService.synthesizeSpeech(text1);
+      
+      // Start second request while first is still processing
+      const promise2 = ttsService.synthesizeSpeech(text2);
+
+      const results = await Promise.all([promise1, promise2]);
+      
+      expect(results[0]).toBe('Speech synthesis completed');
+      expect(results[1]).toBe('Speech synthesis completed');
+      expect(mockSpeechSynthesis.cancel).toHaveBeenCalled(); // Should cancel previous speech
     });
   });
 });

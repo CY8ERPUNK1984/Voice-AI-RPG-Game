@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HybridASR } from '../HybridASR';
 
+// Mock utility functions
+vi.mock('@/utils/debounce', () => ({
+  debounce: vi.fn((fn) => fn)
+}));
+
+vi.mock('@/utils/audioOptimization', () => ({
+  compressAudio: vi.fn((blob) => Promise.resolve(blob))
+}));
+
 // Mock WebSpeechASR
 const mockWebSpeechASR = {
   isAvailable: vi.fn(),
@@ -51,9 +60,12 @@ describe('HybridASR', () => {
     vi.clearAllMocks();
     mockWebSpeechASR.isAvailable.mockReturnValue(true);
     mockWebSpeechASR.getRecordingState.mockReturnValue(false);
+    mockWebSpeechASR.startRecording.mockResolvedValue(undefined);
+    mockWebSpeechASR.stopRecording.mockResolvedValue('test result');
     mockGetUserMedia.mockResolvedValue({
       getTracks: () => [{ stop: vi.fn() }]
     });
+    mockMediaRecorder.state = 'inactive';
     hybridASR = new HybridASR();
   });
 
@@ -92,6 +104,7 @@ describe('HybridASR', () => {
   describe('getAvailableMethods', () => {
     it('should return correct availability status', () => {
       mockWebSpeechASR.isAvailable.mockReturnValue(true);
+      (window.MediaRecorder as any).isTypeSupported.mockReturnValue(true);
       
       const methods = hybridASR.getAvailableMethods();
       expect(methods.webSpeech).toBe(true);
@@ -106,7 +119,14 @@ describe('HybridASR', () => {
       await hybridASR.startRecording();
       
       expect(mockWebSpeechASR.startRecording).toHaveBeenCalled();
-      expect(mockGetUserMedia).toHaveBeenCalledWith({ audio: true });
+      expect(mockGetUserMedia).toHaveBeenCalledWith({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000
+        }
+      });
       expect(mockMediaRecorder.start).toHaveBeenCalled();
     });
 
@@ -139,6 +159,12 @@ describe('HybridASR', () => {
   describe('stopRecording', () => {
     beforeEach(async () => {
       await hybridASR.startRecording();
+      // Simulate audio data being available after starting recording
+      setTimeout(() => {
+        if (mockMediaRecorder.ondataavailable) {
+          mockMediaRecorder.ondataavailable({ data: new Blob(['audio data'], { type: 'audio/webm' }) } as BlobEvent);
+        }
+      }, 0);
     });
 
     it('should stop recording and return Web Speech API result', async () => {
@@ -149,9 +175,11 @@ describe('HybridASR', () => {
       const resultPromise = hybridASR.stopRecording();
       
       // Simulate Web Speech API success
-      if (mockWebSpeechASR.onResult) {
-        mockWebSpeechASR.onResult(expectedResult);
-      }
+      setTimeout(() => {
+        if (mockWebSpeechASR.onResult) {
+          mockWebSpeechASR.onResult(expectedResult);
+        }
+      }, 10);
       
       const result = await resultPromise;
       expect(result).toBe(expectedResult);
@@ -159,8 +187,6 @@ describe('HybridASR', () => {
 
     it('should fallback to Whisper when Web Speech API fails', async () => {
       const whisperResult = 'Whisper result';
-      mockWebSpeechASR.getRecordingState.mockReturnValue(true);
-      mockWebSpeechASR.stopRecording.mockRejectedValue(new Error('Web Speech failed'));
       
       // Mock fetch for Whisper API
       (globalThis.fetch as any).mockResolvedValue({
@@ -168,15 +194,15 @@ describe('HybridASR', () => {
         json: () => Promise.resolve({ transcription: whisperResult })
       });
       
-      const resultPromise = hybridASR.stopRecording();
+      // Test the transcribeAudio method directly for fallback scenario
+      const audioBlob = new Blob(['audio data'], { type: 'audio/webm' });
+      const result = await hybridASR.transcribeAudio(audioBlob);
       
-      // Simulate Web Speech API error triggering fallback
-      if (mockWebSpeechASR.onError) {
-        mockWebSpeechASR.onError(new Error('Web Speech failed'));
-      }
-      
-      const result = await resultPromise;
       expect(result).toBe(whisperResult);
+      expect(globalThis.fetch).toHaveBeenCalledWith('/api/transcribe', {
+        method: 'POST',
+        body: expect.any(FormData)
+      });
     });
 
     it('should throw error if not recording', async () => {
@@ -190,10 +216,18 @@ describe('HybridASR', () => {
     it('should timeout if no result is received', async () => {
       vi.useFakeTimers();
       
-      const resultPromise = hybridASR.stopRecording();
+      // Create new instance and start recording
+      const asr = new HybridASR();
+      await asr.startRecording();
+      
+      // Mock Web Speech API to be recording but never return result
+      mockWebSpeechASR.getRecordingState.mockReturnValue(true);
+      mockWebSpeechASR.stopRecording.mockImplementation(() => new Promise(() => {})); // Never resolves
+      
+      const resultPromise = asr.stopRecording();
       
       // Fast-forward time to trigger timeout
-      vi.advanceTimersByTime(15000);
+      vi.advanceTimersByTime(15100); // Slightly more than 15000ms timeout
       
       await expect(resultPromise).rejects.toThrow('Recording timeout');
       

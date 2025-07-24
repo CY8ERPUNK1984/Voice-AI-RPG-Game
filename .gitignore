@@ -17,6 +17,15 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
+backend/.env
+frontend/.env
+backend/.env.production
+frontend/.env.production
+
+# Sensitive configuration files
+**/config/secrets.json
+**/config/production.json
 
 # IDE files
 .vscode/
@@ -37,6 +46,26 @@ Thumbs.db
 # Logs
 logs
 *.log
+combined.log
+error.log
+
+# Temporary files and uploads
+temp/
+uploads/
+backend/temp/
+backend/uploads/
+frontend/temp/
+frontend/uploads/
+
+# Audio files (temporary)
+*.wav
+*.mp3
+*.ogg
+*.webm
+*.m4a
+!**/data/**/*.wav
+!**/data/**/*.mp3
+!**/data/**/*.ogg
 
 # Runtime data
 pids

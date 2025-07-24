@@ -1,15 +1,20 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GameSessionManager } from '../GameSessionManager';
 import { Story, AudioSettings, Message } from '../../types';
 import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 describe('GameSessionManager', () => {
   let sessionManager: GameSessionManager;
   let mockStory: Story;
   let mockSettings: AudioSettings;
+  let testPersistencePath: string;
 
   beforeEach(() => {
-    sessionManager = new GameSessionManager();
+    // Use a test-specific persistence path
+    testPersistencePath = path.join(process.cwd(), 'temp', 'test-sessions.json');
+    sessionManager = new GameSessionManager(undefined, testPersistencePath);
     
     mockStory = {
       id: 'story-1',
@@ -29,6 +34,18 @@ describe('GameSessionManager', () => {
       asrSensitivity: 0.7,
       voiceSpeed: 1.0
     };
+  });
+
+  afterEach(async () => {
+    // Cleanup test files
+    try {
+      await fs.unlink(testPersistencePath);
+    } catch (error) {
+      // File might not exist, ignore
+    }
+    
+    // Shutdown session manager to clean up intervals
+    await sessionManager.shutdown();
   });
 
   describe('createSession', () => {
@@ -222,6 +239,179 @@ describe('GameSessionManager', () => {
       const cleanedCount = sessionManager.cleanupOldSessions(24);
       expect(cleanedCount).toBe(1);
       expect(sessionManager.getSession(session.id)).toBeUndefined();
+    });
+  });
+
+  describe('enhanced session management', () => {
+    describe('getSessionMetrics', () => {
+      it('should return accurate session metrics', () => {
+        // Create multiple sessions
+        sessionManager.createSession('user-1', mockStory, mockSettings);
+        sessionManager.createSession('user-2', mockStory, mockSettings);
+        
+        const metrics = sessionManager.getSessionMetrics();
+        
+        expect(metrics.activeSessions).toBe(2);
+        expect(metrics.totalSessions).toBe(2);
+        expect(metrics.memoryUsage).toBeGreaterThan(0);
+        expect(metrics.messageCount).toBe(2); // Each session has 1 initial message
+        expect(metrics.lastCleanup).toBeInstanceOf(Date);
+      });
+    });
+
+    describe('getSessionsHealth', () => {
+      it('should return health status for all sessions', () => {
+        const session = sessionManager.createSession('user-1', mockStory, mockSettings);
+        
+        const health = sessionManager.getSessionsHealth();
+        
+        expect(health).toHaveLength(1);
+        expect(health[0].sessionId).toBe(session.id);
+        expect(health[0].memoryUsage).toBeGreaterThan(0);
+        expect(health[0].messageCount).toBe(1);
+        expect(health[0].isHealthy).toBe(true);
+        expect(health[0].lastActivity).toBeInstanceOf(Date);
+      });
+    });
+
+    describe('optimizeMemoryUsage', () => {
+      it('should optimize memory usage by trimming data', () => {
+        const session = sessionManager.createSession('user-1', mockStory, mockSettings);
+        
+        // Add many messages to trigger optimization
+        for (let i = 0; i < 150; i++) {
+          const message: Message = {
+            id: uuidv4(),
+            sessionId: session.id,
+            type: 'user',
+            content: `Message ${i}`,
+            metadata: { 
+              processingTime: 100,
+              confidence: 0.9,
+              tokens: 10,
+              extraData: 'some extra data',
+              moreData: 'more data'
+            },
+            timestamp: new Date()
+          };
+          sessionManager.addMessage(session.id, message);
+        }
+        
+        // Add many conversation history entries
+        const updatedSession = sessionManager.getSession(session.id);
+        if (updatedSession) {
+          for (let i = 0; i < 50; i++) {
+            updatedSession.context.conversationHistory.push(`Extra history ${i}`);
+          }
+        }
+        
+        sessionManager.optimizeMemoryUsage();
+        
+        const optimizedSession = sessionManager.getSession(session.id);
+        expect(optimizedSession?.messages.length).toBeLessThanOrEqual(100);
+        expect(optimizedSession?.context.conversationHistory.length).toBeLessThanOrEqual(20);
+        
+        // Check that metadata was cleaned up (should have at most 3 essential keys)
+        const lastMessage = optimizedSession?.messages[optimizedSession.messages.length - 1];
+        if (lastMessage?.metadata) {
+          const metadataKeys = Object.keys(lastMessage.metadata);
+          expect(metadataKeys.length).toBeLessThanOrEqual(3);
+          // Should only contain essential metadata
+          const allowedKeys = ['processingTime', 'error', 'ttsError'];
+          for (const key of metadataKeys) {
+            expect(allowedKeys).toContain(key);
+          }
+        }
+      });
+    });
+
+    describe('session persistence', () => {
+      it('should persist and load sessions', async () => {
+        // Create sessions
+        const session1 = sessionManager.createSession('user-1', mockStory, mockSettings);
+        const session2 = sessionManager.createSession('user-2', mockStory, mockSettings);
+        
+        // Add some messages
+        const message: Message = {
+          id: uuidv4(),
+          sessionId: session1.id,
+          type: 'user',
+          content: 'Test message',
+          metadata: {},
+          timestamp: new Date()
+        };
+        sessionManager.addMessage(session1.id, message);
+        
+        // Persist sessions
+        await sessionManager.persistSessions();
+        
+        // Create new session manager and load
+        const newSessionManager = new GameSessionManager(undefined, testPersistencePath);
+        await newSessionManager.loadPersistedSessions();
+        
+        // Verify sessions were loaded
+        const loadedSession1 = newSessionManager.getSession(session1.id);
+        const loadedSession2 = newSessionManager.getSession(session2.id);
+        
+        expect(loadedSession1).toBeDefined();
+        expect(loadedSession2).toBeDefined();
+        expect(loadedSession1?.messages).toHaveLength(2); // Initial + added message
+        expect(loadedSession1?.userId).toBe('user-1');
+        expect(loadedSession2?.userId).toBe('user-2');
+        
+        // Cleanup
+        await newSessionManager.shutdown();
+      });
+
+      it('should handle missing persistence file gracefully', async () => {
+        const nonExistentPath = path.join(process.cwd(), 'temp', 'non-existent.json');
+        const newSessionManager = new GameSessionManager(undefined, nonExistentPath);
+        
+        // Should not throw error
+        await expect(newSessionManager.loadPersistedSessions()).resolves.toBeUndefined();
+        
+        await newSessionManager.shutdown();
+      });
+    });
+
+    describe('automatic cleanup', () => {
+      it('should handle memory-heavy sessions', () => {
+        const session = sessionManager.createSession('user-1', mockStory, mockSettings);
+        
+        // Create a large session by adding many messages
+        for (let i = 0; i < 200; i++) {
+          const message: Message = {
+            id: uuidv4(),
+            sessionId: session.id,
+            type: 'user',
+            content: `Very long message content that takes up memory: ${'x'.repeat(1000)}`,
+            metadata: { largeData: 'x'.repeat(1000) },
+            timestamp: new Date()
+          };
+          sessionManager.addMessage(session.id, message);
+        }
+        
+        // Trigger memory cleanup (this is normally done automatically)
+        const initialMessageCount = sessionManager.getSession(session.id)?.messages.length || 0;
+        
+        // The cleanup should have been triggered during message addition
+        // Since we added 200 messages, it should be trimmed to 100
+        expect(initialMessageCount).toBeLessThanOrEqual(100);
+      });
+    });
+
+    describe('shutdown', () => {
+      it('should shutdown gracefully', async () => {
+        // Create a session
+        sessionManager.createSession('user-1', mockStory, mockSettings);
+        
+        // Shutdown should persist sessions and clean up
+        await expect(sessionManager.shutdown()).resolves.toBeUndefined();
+        
+        // Verify persistence file was created
+        const fileExists = await fs.access(testPersistencePath).then(() => true).catch(() => false);
+        expect(fileExists).toBe(true);
+      });
     });
   });
 });

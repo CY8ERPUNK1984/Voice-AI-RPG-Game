@@ -1,23 +1,108 @@
 import React from 'react';
+import { errorManager } from '@/services/ErrorManager';
+import { AppError, ToastAction } from '@/types';
 
 interface ServiceFallbackProps {
   serviceName: string;
-  error?: string;
+  error?: string | AppError;
   onRetry?: () => void;
   children?: React.ReactNode;
+  showRecoveryActions?: boolean;
 }
 
 export const ServiceFallback: React.FC<ServiceFallbackProps> = ({
   serviceName,
   error,
   onRetry,
-  children
+  children,
+  showRecoveryActions = true
 }) => {
+  const [isRetrying, setIsRetrying] = React.useState(false);
+  
+  const appError = typeof error === 'object' ? error : null;
+  const errorMessage = typeof error === 'string' ? error : 
+    appError ? errorManager.getLocalizedMessage(appError) : 
+    `${serviceName} временно недоступен`;
+
+  const handleRetry = async () => {
+    if (!onRetry) return;
+    
+    setIsRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  const renderRecoveryActions = () => {
+    if (!showRecoveryActions || !appError) return null;
+
+    const actions: ToastAction[] = [];
+    
+    if (appError.retryable && onRetry) {
+      actions.push({
+        label: 'Повторить',
+        action: handleRetry,
+        primary: true
+      });
+    }
+
+    // Add service-specific recovery actions
+    if (serviceName.toLowerCase().includes('микрофон') || serviceName.toLowerCase().includes('voice')) {
+      actions.push({
+        label: 'Проверить разрешения',
+        action: () => {
+          errorManager.showToast({
+            type: 'info',
+            title: 'Разрешения микрофона',
+            message: 'Проверьте, что доступ к микрофону разрешен в настройках браузера'
+          });
+        }
+      });
+    }
+
+    if (actions.length === 0) return null;
+
+    return (
+      <div className="mt-3 space-y-2">
+        {actions.map((action, index) => (
+          <button
+            key={index}
+            onClick={action.action}
+            disabled={isRetrying}
+            className={`w-full px-3 py-2 rounded text-sm font-medium transition-colors ${
+              action.primary 
+                ? 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white'
+                : 'bg-gray-600 hover:bg-gray-700 disabled:bg-gray-800 text-white'
+            }`}
+          >
+            {isRetrying && action.primary ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Повторяем...
+              </>
+            ) : (
+              action.label
+            )}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 text-center">
       <div className="mb-3">
         <svg
-          className="w-8 h-8 text-yellow-500 mx-auto mb-2"
+          className={`w-8 h-8 mx-auto mb-2 ${
+            appError?.severity === 'critical' ? 'text-red-500' :
+            appError?.severity === 'high' ? 'text-orange-500' :
+            'text-yellow-500'
+          }`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -29,16 +114,18 @@ export const ServiceFallback: React.FC<ServiceFallbackProps> = ({
             d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
           />
         </svg>
-        <h3 className="text-lg font-medium text-yellow-400">
-          {serviceName} Unavailable
+        <h3 className={`text-lg font-medium ${
+          appError?.severity === 'critical' ? 'text-red-400' :
+          appError?.severity === 'high' ? 'text-orange-400' :
+          'text-yellow-400'
+        }`}>
+          {serviceName} недоступен
         </h3>
       </div>
       
-      {error && (
-        <p className="text-sm text-gray-400 mb-3">
-          {error}
-        </p>
-      )}
+      <p className="text-sm text-gray-400 mb-3">
+        {errorMessage}
+      </p>
       
       {children && (
         <div className="mb-3">
@@ -46,12 +133,15 @@ export const ServiceFallback: React.FC<ServiceFallbackProps> = ({
         </div>
       )}
       
-      {onRetry && (
+      {renderRecoveryActions()}
+      
+      {!showRecoveryActions && onRetry && (
         <button
-          onClick={onRetry}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+          onClick={handleRetry}
+          disabled={isRetrying}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
         >
-          Try Again
+          {isRetrying ? 'Повторяем...' : 'Попробовать снова'}
         </button>
       )}
     </div>
@@ -96,7 +186,7 @@ export const VoiceInputFallback: React.FC<VoiceInputFallbackProps> = ({
           />
         </svg>
         <span className="text-sm font-medium text-yellow-400">
-          Voice input unavailable
+          Голосовой ввод недоступен
         </span>
       </div>
       
@@ -112,7 +202,7 @@ export const VoiceInputFallback: React.FC<VoiceInputFallbackProps> = ({
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type your message here..."
+            placeholder="Введите ваше сообщение здесь..."
             className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
           />
           <button
@@ -120,7 +210,7 @@ export const VoiceInputFallback: React.FC<VoiceInputFallbackProps> = ({
             disabled={!inputText.trim()}
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded text-sm font-medium transition-colors"
           >
-            Send
+            Отправить
           </button>
         </div>
         
@@ -130,7 +220,7 @@ export const VoiceInputFallback: React.FC<VoiceInputFallbackProps> = ({
             onClick={onRetryVoice}
             className="w-full bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
           >
-            Try Voice Input Again
+            Попробовать голосовой ввод снова
           </button>
         )}
       </form>
@@ -166,7 +256,7 @@ export const TTSFallback: React.FC<TTSFallbackProps> = ({
               />
             </svg>
             <span className="text-xs font-medium text-yellow-400">
-              Audio unavailable - Text only
+              Аудио недоступно - только текст
             </span>
           </div>
           <p className="text-sm text-gray-300">
@@ -179,7 +269,7 @@ export const TTSFallback: React.FC<TTSFallbackProps> = ({
             onClick={onRetryTTS}
             className="ml-3 bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
           >
-            Retry Audio
+            Повторить аудио
           </button>
         )}
       </div>
@@ -213,12 +303,12 @@ export const ConnectionFallback: React.FC<ConnectionFallbackProps> = ({
           />
         </svg>
         <h3 className="text-lg font-medium text-red-400">
-          Connection Lost
+          Соединение потеряно
         </h3>
       </div>
       
       <p className="text-sm text-red-200 mb-4">
-        Unable to connect to the game server. Please check your internet connection.
+        Не удается подключиться к игровому серверу. Проверьте подключение к интернету.
       </p>
       
       {onRetry && (
@@ -233,10 +323,10 @@ export const ConnectionFallback: React.FC<ConnectionFallbackProps> = ({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              Reconnecting...
+              Переподключение...
             </>
           ) : (
-            'Reconnect'
+            'Переподключиться'
           )}
         </button>
       )}

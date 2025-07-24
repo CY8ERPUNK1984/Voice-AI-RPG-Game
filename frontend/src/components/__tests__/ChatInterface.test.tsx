@@ -151,7 +151,7 @@ describe('ChatInterface Component', () => {
     );
 
     const textarea = screen.getByPlaceholderText('Type your message here...');
-    const sendButton = screen.getByRole('button', { name: /loading/i });
+    const sendButton = screen.getByRole('button', { name: /sending message/i });
 
     expect(textarea).toBeDisabled();
     expect(sendButton).toBeDisabled();
@@ -161,7 +161,7 @@ describe('ChatInterface Component', () => {
   });
 
   it('shows loading indicator when isLoading is true', () => {
-    render(
+    const { container } = render(
       <ChatInterface
         messages={mockMessages}
         onSendMessage={mockOnSendMessage}
@@ -169,11 +169,17 @@ describe('ChatInterface Component', () => {
       />
     );
 
-    // Should show typing indicator with bouncing dots
-    const loadingDots = screen.getAllByRole('generic').filter(el => 
-      el.classList.contains('animate-bounce')
-    );
-    expect(loadingDots).toHaveLength(3);
+    // Should show enhanced loading indicator with progress
+    const loadingIndicator = screen.getByText(/Обдумывание ответа/);
+    expect(loadingIndicator).toBeInTheDocument();
+    
+    // Should show progress bar
+    const progressBar = screen.getByRole('progressbar');
+    expect(progressBar).toBeInTheDocument();
+    
+    // Should show skeleton loader
+    const skeletonElements = container.querySelectorAll('.animate-pulse');
+    expect(skeletonElements.length).toBeGreaterThan(0);
   });
 
   it('does not submit empty or whitespace-only messages', async () => {

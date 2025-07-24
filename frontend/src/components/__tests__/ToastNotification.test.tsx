@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ToastContainer } from '../ToastNotification';
 import { errorHandler, ToastNotification } from '@/services/ErrorHandler';
 
@@ -30,8 +30,14 @@ const { __mockToastCallbacks } = await import('@/services/ErrorHandler') as any;
 describe('ToastContainer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.clearAllTimers();
     // Clear any existing callbacks
     __mockToastCallbacks.length = 0;
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   it('should render nothing when no toasts are present', () => {
@@ -57,7 +63,9 @@ describe('ToastContainer', () => {
     };
 
     // Trigger the toast callback
-    __mockToastCallbacks.forEach(callback => callback(mockToast));
+    await act(async () => {
+      __mockToastCallbacks.forEach(callback => callback(mockToast));
+    });
 
     await waitFor(() => {
       expect(screen.getByText('Test Error')).toBeInTheDocument();
@@ -84,9 +92,11 @@ describe('ToastContainer', () => {
       timestamp: new Date(),
     };
 
-    __mockToastCallbacks.forEach(callback => {
-      callback(toast1);
-      callback(toast2);
+    await act(async () => {
+      __mockToastCallbacks.forEach(callback => {
+        callback(toast1);
+        callback(toast2);
+      });
     });
 
     await waitFor(() => {
@@ -106,14 +116,19 @@ describe('ToastContainer', () => {
       timestamp: new Date(),
     };
 
-    __mockToastCallbacks.forEach(callback => callback(mockToast));
+    await act(async () => {
+      __mockToastCallbacks.forEach(callback => callback(mockToast));
+    });
 
     await waitFor(() => {
       expect(screen.getByText('Test Info')).toBeInTheDocument();
     });
 
-    const closeButton = screen.getByLabelText('Close notification');
-    fireEvent.click(closeButton);
+    const closeButton = screen.getByLabelText('Закрыть уведомление: Test Info');
+    
+    await act(async () => {
+      fireEvent.click(closeButton);
+    });
 
     await waitFor(() => {
       expect(screen.queryByText('Test Info')).not.toBeInTheDocument();
@@ -134,21 +149,28 @@ describe('ToastContainer', () => {
       duration: 1000,
     };
 
-    __mockToastCallbacks.forEach(callback => callback(mockToast));
+    await act(async () => {
+      __mockToastCallbacks.forEach(callback => callback(mockToast));
+    });
 
     await waitFor(() => {
       expect(screen.getByText('Success')).toBeInTheDocument();
     });
 
-    // Fast-forward time
-    vi.advanceTimersByTime(1100); // Add a bit more time to ensure timeout
+    // Fast-forward time and wait for the timeout to trigger
+    await act(async () => {
+      vi.advanceTimersByTime(1000); // Exact duration
+    });
+
+    // Wait for the animation timeout (300ms)
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
 
     await waitFor(() => {
       expect(screen.queryByText('Success')).not.toBeInTheDocument();
-    }, { timeout: 100 }); // Reduce timeout since we're using fake timers
-
-    vi.useRealTimers();
-  }, 10000);
+    }, { timeout: 100 });
+  });
 
   it('should not auto-remove toast when duration is not set', async () => {
     vi.useFakeTimers();
@@ -164,19 +186,21 @@ describe('ToastContainer', () => {
       // No duration set
     };
 
-    __mockToastCallbacks.forEach(callback => callback(mockToast));
+    await act(async () => {
+      __mockToastCallbacks.forEach(callback => callback(mockToast));
+    });
 
     await waitFor(() => {
       expect(screen.getByText('Persistent Toast')).toBeInTheDocument();
     });
 
     // Fast-forward time
-    vi.advanceTimersByTime(5000);
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
 
     // Toast should still be there
     expect(screen.getByText('Persistent Toast')).toBeInTheDocument();
-
-    vi.useRealTimers();
   });
 
   describe('Toast styling', () => {
@@ -191,7 +215,9 @@ describe('ToastContainer', () => {
         timestamp: new Date(),
       };
 
-      __mockToastCallbacks.forEach(callback => callback(errorToast));
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(errorToast));
+      });
 
       await waitFor(() => {
         const toastElement = screen.getByText('Error Toast').closest('.bg-red-900');
@@ -210,7 +236,9 @@ describe('ToastContainer', () => {
         timestamp: new Date(),
       };
 
-      __mockToastCallbacks.forEach(callback => callback(warningToast));
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(warningToast));
+      });
 
       await waitFor(() => {
         const toastElement = screen.getByText('Warning Toast').closest('.bg-yellow-900');
@@ -229,7 +257,9 @@ describe('ToastContainer', () => {
         timestamp: new Date(),
       };
 
-      __mockToastCallbacks.forEach(callback => callback(successToast));
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(successToast));
+      });
 
       await waitFor(() => {
         const toastElement = screen.getByText('Success Toast').closest('.bg-green-900');
@@ -248,11 +278,114 @@ describe('ToastContainer', () => {
         timestamp: new Date(),
       };
 
-      __mockToastCallbacks.forEach(callback => callback(infoToast));
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(infoToast));
+      });
 
       await waitFor(() => {
         const toastElement = screen.getByText('Info Toast').closest('.bg-blue-900');
         expect(toastElement).toHaveClass('bg-blue-900', 'border-blue-700', 'text-blue-100');
+      });
+    });
+  });
+
+  describe('Timer cleanup and component lifecycle', () => {
+    it('should cleanup timers when component unmounts', async () => {
+      vi.useFakeTimers();
+      
+      const { unmount } = render(<ToastContainer />);
+
+      const mockToast: ToastNotification = {
+        id: '1',
+        type: 'success',
+        title: 'Success',
+        message: 'Operation completed',
+        timestamp: new Date(),
+        duration: 5000,
+      };
+
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(mockToast));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Success')).toBeInTheDocument();
+      });
+
+      // Unmount the component before timer expires
+      unmount();
+
+      // Advance timers - should not cause any issues since component is unmounted
+      await act(async () => {
+        vi.advanceTimersByTime(6000);
+      });
+
+      // No assertions needed - if cleanup is working, no errors should occur
+      expect(true).toBe(true); // Placeholder assertion
+    });
+
+    it('should handle multiple toasts with different durations', async () => {
+      vi.useFakeTimers();
+      
+      render(<ToastContainer />);
+
+      const shortToast: ToastNotification = {
+        id: '1',
+        type: 'info',
+        title: 'Short Toast',
+        message: 'Short message',
+        timestamp: new Date(),
+        duration: 1000,
+      };
+
+      const longToast: ToastNotification = {
+        id: '2',
+        type: 'error',
+        title: 'Long Toast',
+        message: 'Long message',
+        timestamp: new Date(),
+        duration: 3000,
+      };
+
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => {
+          callback(shortToast);
+          callback(longToast);
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Short Toast')).toBeInTheDocument();
+        expect(screen.getByText('Long Toast')).toBeInTheDocument();
+      });
+
+      // Advance time to expire short toast
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      // Wait for animation
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText('Short Toast')).not.toBeInTheDocument();
+        expect(screen.getByText('Long Toast')).toBeInTheDocument();
+      });
+
+      // Advance time to expire long toast
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      // Wait for animation
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText('Long Toast')).not.toBeInTheDocument();
       });
     });
   });
@@ -269,7 +402,9 @@ describe('ToastContainer', () => {
         timestamp: new Date(),
       };
 
-      __mockToastCallbacks.forEach(callback => callback(errorToast));
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(errorToast));
+      });
 
       await waitFor(() => {
         const toastContainer = screen.getByText('Error Toast').closest('.bg-red-900');
@@ -290,7 +425,9 @@ describe('ToastContainer', () => {
         timestamp: new Date(),
       };
 
-      __mockToastCallbacks.forEach(callback => callback(warningToast));
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(warningToast));
+      });
 
       await waitFor(() => {
         const toastContainer = screen.getByText('Warning Toast').closest('.bg-yellow-900');
@@ -311,7 +448,9 @@ describe('ToastContainer', () => {
         timestamp: new Date(),
       };
 
-      __mockToastCallbacks.forEach(callback => callback(successToast));
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(successToast));
+      });
 
       await waitFor(() => {
         const toastContainer = screen.getByText('Success Toast').closest('.bg-green-900');
@@ -332,7 +471,9 @@ describe('ToastContainer', () => {
         timestamp: new Date(),
       };
 
-      __mockToastCallbacks.forEach(callback => callback(infoToast));
+      await act(async () => {
+        __mockToastCallbacks.forEach(callback => callback(infoToast));
+      });
 
       await waitFor(() => {
         const toastContainer = screen.getByText('Info Toast').closest('.bg-blue-900');

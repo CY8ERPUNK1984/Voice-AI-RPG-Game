@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Story, StorySelectorProps } from '../types';
-import { StorySkeleton } from './SkeletonLoader';
+import { SkeletonLoader } from './SkeletonLoader';
 
 const StorySelector: React.FC<StorySelectorProps> = ({ stories, onStorySelect, isLoading = false }) => {
   const [selectedGenre, setSelectedGenre] = useState<string>('all');
@@ -103,7 +103,11 @@ const StorySelector: React.FC<StorySelectorProps> = ({ stories, onStorySelect, i
 
       {/* Stories Grid */}
       {isLoading ? (
-        <StorySkeleton count={6} />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <SkeletonLoader key={index} variant="rectangular" height={200} className="rounded-lg" />
+          ))}
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredStories.map(story => (

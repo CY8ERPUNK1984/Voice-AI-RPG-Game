@@ -39,8 +39,8 @@ export class ConnectionManager {
   private health: ConnectionHealth;
   private retryConfig: RetryConfig;
   private eventListeners: Partial<ConnectionManagerEvents> = {};
-  private reconnectTimer: number | null = null;
-  private heartbeatTimer: number | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
   private connectionStartTime: Date | null = null;
   private lastPingTime: Date | null = null;
 

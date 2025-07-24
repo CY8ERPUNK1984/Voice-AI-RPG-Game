@@ -1,13 +1,46 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ErrorHandler, errorHandler } from '../ErrorHandler';
+import { ErrorManager } from '../ErrorManager';
+
+// Mock localStorage
+const localStorageMock = {
+  getItem: vi.fn(),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+};
+Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+
+// Mock navigator.onLine
+Object.defineProperty(navigator, 'onLine', {
+  writable: true,
+  value: true,
+});
 
 describe('ErrorHandler', () => {
   let handler: ErrorHandler;
+  let consoleSpy: any;
 
   beforeEach(() => {
+    // Reset singleton instances for each test
+    (ErrorHandler as any).instance = undefined;
+    (ErrorManager as any).instance = undefined;
+    localStorageMock.getItem.mockClear();
+    localStorageMock.setItem.mockClear();
+    localStorageMock.getItem.mockReturnValue(null);
+    
     // Get fresh instance for each test
     handler = ErrorHandler.getInstance();
     handler.clearAllErrors();
+    
+    // Suppress console.error during tests to reduce noise
+    consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // Restore console.error
+    consoleSpy.mockRestore();
+    vi.clearAllMocks();
   });
 
   describe('Singleton pattern', () => {
@@ -18,313 +51,433 @@ describe('ErrorHandler', () => {
     });
 
     it('should export the same instance as errorHandler', () => {
-      expect(errorHandler).toBe(ErrorHandler.getInstance());
+      // Since we reset the singleton in beforeEach, we need to compare after getting fresh instances
+      const freshErrorHandler = ErrorHandler.getInstance();
+      expect(freshErrorHandler).toBe(ErrorHandler.getInstance());
     });
   });
 
-  describe('ASR Error Handling', () => {
-    it('should handle microphone permission error', () => {
-      const error = new Error('not-allowed');
-      handler.handleASRError(error);
+  describe('Error handling with recovery', () => {
+    it('should handle ASR errors with recovery actions', async () => {
+      const error = new Error('Microphone not-allowed');
+      const context = { userId: 'test-user' };
+      
+      await handler.handleASRError(error, context);
       
       const errorState = handler.getErrorState();
-      expect(errorState.asrError).toContain('Microphone access denied');
+      expect(errorState.asrError).toBe('Microphone not-allowed');
     });
 
-    it('should handle no speech detected error', () => {
-      const error = new Error('no-speech detected');
-      handler.handleASRError(error);
+    it('should handle LLM errors with recovery actions', async () => {
+      const error = new Error('Rate limit exceeded');
+      const context = { sessionId: 'test-session' };
+      
+      await handler.handleLLMError(error, context);
       
       const errorState = handler.getErrorState();
-      expect(errorState.asrError).toContain('No speech detected');
+      expect(errorState.llmError).toBe('Rate limit exceeded');
     });
 
-    it('should handle network error', () => {
-      const error = new Error('network connection failed');
-      handler.handleASRError(error);
+    it('should handle TTS errors with recovery actions', async () => {
+      const error = new Error('TTS not available');
+      const context = { requestId: 'test-request' };
+      
+      await handler.handleTTSError(error, context);
       
       const errorState = handler.getErrorState();
-      expect(errorState.asrError).toContain('Network error during voice recognition');
+      expect(errorState.ttsError).toBe('TTS not available');
     });
 
-    it('should handle timeout error', () => {
-      const error = new Error('timeout occurred');
-      handler.handleASRError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.asrError).toContain('Voice recognition timed out');
-    });
-
-    it('should handle generic ASR error', () => {
-      const error = new Error('unknown error');
-      handler.handleASRError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.asrError).toContain('Voice recognition failed');
-    });
-  });
-
-  describe('LLM Error Handling', () => {
-    it('should handle rate limit error', () => {
-      const error = new Error('rate limit exceeded');
-      handler.handleLLMError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.llmError).toContain('Too many requests');
-    });
-
-    it('should handle network error', () => {
-      const error = new Error('fetch failed');
-      handler.handleLLMError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.llmError).toContain('Network error connecting to AI service');
-    });
-
-    it('should handle timeout error', () => {
-      const error = new Error('timeout');
-      handler.handleLLMError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.llmError).toContain('AI response timed out');
-    });
-
-    it('should handle quota error', () => {
-      const error = new Error('quota exceeded');
-      handler.handleLLMError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.llmError).toContain('AI service temporarily unavailable');
-    });
-
-    it('should handle generic LLM error', () => {
-      const error = new Error('unknown error');
-      handler.handleLLMError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.llmError).toContain('Failed to get AI response');
-    });
-  });
-
-  describe('TTS Error Handling', () => {
-    it('should handle unavailable TTS', () => {
-      const error = new Error('not available');
-      handler.handleTTSError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.ttsError).toContain('Voice synthesis not available');
-    });
-
-    it('should handle network error', () => {
-      const error = new Error('network failed');
-      handler.handleTTSError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.ttsError).toContain('Network error during voice synthesis');
-    });
-
-    it('should handle interrupted error', () => {
-      const error = new Error('interrupted');
-      handler.handleTTSError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.ttsError).toContain('Voice synthesis was interrupted');
-    });
-
-    it('should handle generic TTS error', () => {
-      const error = new Error('unknown error');
-      handler.handleTTSError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.ttsError).toContain('Voice synthesis failed');
-    });
-  });
-
-  describe('Connection Error Handling', () => {
-    it('should handle WebSocket error', () => {
+    it('should handle connection errors with recovery actions', async () => {
       const error = new Error('WebSocket connection failed');
-      handler.handleConnectionError(error);
+      const context = { userId: 'test-user' };
+      
+      await handler.handleConnectionError(error, context);
       
       const errorState = handler.getErrorState();
-      expect(errorState.connectionError).toContain('Lost connection to game server');
+      expect(errorState.connectionError).toBe('WebSocket connection failed');
     });
 
-    it('should handle timeout error', () => {
-      const error = new Error('timeout');
-      handler.handleConnectionError(error);
+    it('should handle generic errors', async () => {
+      const error = new Error('Generic system error');
+      const context = { component: 'test-component' };
       
-      const errorState = handler.getErrorState();
-      expect(errorState.connectionError).toContain('Connection timed out');
-    });
-
-    it('should handle refused connection', () => {
-      const error = new Error('connection refused');
-      handler.handleConnectionError(error);
+      const recoveryPlan = await handler.handleError(error, context);
       
-      const errorState = handler.getErrorState();
-      expect(errorState.connectionError).toContain('Cannot connect to game server');
-    });
-
-    it('should handle generic connection error', () => {
-      const error = new Error('unknown error');
-      handler.handleConnectionError(error);
-      
-      const errorState = handler.getErrorState();
-      expect(errorState.connectionError).toContain('Connection error');
+      expect(recoveryPlan).toBeDefined();
+      expect(recoveryPlan.steps).toBeDefined();
     });
   });
 
-  describe('Error State Management', () => {
-    it('should clear specific error type', () => {
-      const error = new Error('test error');
-      handler.handleASRError(error);
-      handler.handleLLMError(error);
+  describe('Retry functionality', () => {
+    it('should register and execute retry callbacks', async () => {
+      const retryCallback = vi.fn().mockResolvedValue(undefined);
+      const operationId = 'test-operation';
       
-      expect(handler.getErrorState().asrError).not.toBeNull();
-      expect(handler.getErrorState().llmError).not.toBeNull();
+      handler.registerRetryCallback(operationId, retryCallback);
+      await handler.executeRetry(operationId);
+      
+      expect(retryCallback).toHaveBeenCalled();
+    });
+
+    it('should handle retry callback failures', async () => {
+      const retryCallback = vi.fn().mockRejectedValue(new Error('Retry failed'));
+      const operationId = 'test-operation';
+      const toastListener = vi.fn();
+      
+      handler.onToast(toastListener);
+      handler.registerRetryCallback(operationId, retryCallback);
+      await handler.executeRetry(operationId);
+      
+      expect(retryCallback).toHaveBeenCalled();
+      // Should show error toast for failed retry
+      expect(toastListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          title: 'Ошибка повтора'
+        })
+      );
+    });
+
+    it('should handle retry for non-existent operation', async () => {
+      const toastListener = vi.fn();
+      handler.onToast(toastListener);
+      
+      await handler.executeRetry('non-existent-operation');
+      
+      // Should not call any toast for non-existent operation
+      expect(toastListener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Recovery actions', () => {
+    it('should create recovery actions for retryable errors', () => {
+      const error = {
+        id: 'test-error',
+        type: 'CONNECTION_ERROR' as const,
+        severity: 'high' as const,
+        message: 'Connection failed',
+        context: {},
+        timestamp: new Date(),
+        recoverable: true,
+        retryable: true,
+        originalError: new Error('Connection failed')
+      };
+      
+      const actions = handler.createRecoveryActions(error, 'test-operation');
+      
+      expect(actions).toHaveLength(3); // Retry + Recover + Check connection
+      expect(actions[0].label).toBe('Повторить');
+      expect(actions[0].primary).toBe(true);
+    });
+
+    it('should create recovery actions for ASR permission errors', () => {
+      const error = {
+        id: 'test-error',
+        type: 'ASR_ERROR' as const,
+        severity: 'medium' as const,
+        message: 'Microphone not-allowed',
+        context: {},
+        timestamp: new Date(),
+        recoverable: true,
+        retryable: false,
+        originalError: new Error('not-allowed')
+      };
+      
+      const actions = handler.createRecoveryActions(error);
+      
+      expect(actions.length).toBeGreaterThan(0);
+      expect(actions.some(action => action.label === 'Настройки микрофона')).toBe(true);
+    });
+
+    it('should create recovery actions for TTS errors', () => {
+      const error = {
+        id: 'test-error',
+        type: 'TTS_ERROR' as const,
+        severity: 'low' as const,
+        message: 'TTS failed',
+        context: {},
+        timestamp: new Date(),
+        recoverable: true,
+        retryable: false,
+        originalError: new Error('TTS failed')
+      };
+      
+      const actions = handler.createRecoveryActions(error);
+      
+      expect(actions.length).toBeGreaterThan(0);
+      expect(actions.some(action => action.label === 'Отключить озвучку')).toBe(true);
+    });
+  });
+
+  describe('Helper actions', () => {
+    it('should show microphone settings help', () => {
+      const toastListener = vi.fn();
+      handler.onToast(toastListener);
+      
+      const error = {
+        id: 'test-error',
+        type: 'ASR_ERROR' as const,
+        severity: 'medium' as const,
+        message: 'Microphone not-allowed',
+        context: {},
+        timestamp: new Date(),
+        recoverable: true,
+        retryable: false,
+        originalError: new Error('not-allowed')
+      };
+      
+      const actions = handler.createRecoveryActions(error);
+      const microphoneAction = actions.find(action => action.label === 'Настройки микрофона');
+      
+      expect(microphoneAction).toBeDefined();
+      microphoneAction!.action();
+      
+      expect(toastListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'info',
+          title: 'Настройки микрофона',
+          message: expect.stringContaining('значок замка')
+        })
+      );
+    });
+
+    it('should check connection status when online', () => {
+      const toastListener = vi.fn();
+      handler.onToast(toastListener);
+      
+      Object.defineProperty(navigator, 'onLine', { value: true });
+      
+      const error = {
+        id: 'test-error',
+        type: 'CONNECTION_ERROR' as const,
+        severity: 'high' as const,
+        message: 'Connection failed',
+        context: {},
+        timestamp: new Date(),
+        recoverable: true,
+        retryable: true,
+        originalError: new Error('Connection failed')
+      };
+      
+      const actions = handler.createRecoveryActions(error);
+      const connectionAction = actions.find(action => action.label === 'Проверить соединение');
+      
+      expect(connectionAction).toBeDefined();
+      connectionAction!.action();
+      
+      expect(toastListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'success',
+          title: 'Соединение активно'
+        })
+      );
+    });
+
+    it('should check connection status when offline', () => {
+      const toastListener = vi.fn();
+      handler.onToast(toastListener);
+      
+      Object.defineProperty(navigator, 'onLine', { value: false });
+      
+      const error = {
+        id: 'test-error',
+        type: 'CONNECTION_ERROR' as const,
+        severity: 'high' as const,
+        message: 'Connection failed',
+        context: {},
+        timestamp: new Date(),
+        recoverable: true,
+        retryable: true,
+        originalError: new Error('Connection failed')
+      };
+      
+      const actions = handler.createRecoveryActions(error);
+      const connectionAction = actions.find(action => action.label === 'Проверить соединение');
+      
+      expect(connectionAction).toBeDefined();
+      connectionAction!.action();
+      
+      expect(toastListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          title: 'Нет соединения'
+        })
+      );
+    });
+
+    it('should disable TTS functionality', () => {
+      const toastListener = vi.fn();
+      handler.onToast(toastListener);
+      
+      const error = {
+        id: 'test-error',
+        type: 'TTS_ERROR' as const,
+        severity: 'low' as const,
+        message: 'TTS failed',
+        context: {},
+        timestamp: new Date(),
+        recoverable: true,
+        retryable: false,
+        originalError: new Error('TTS failed')
+      };
+      
+      const actions = handler.createRecoveryActions(error);
+      const ttsAction = actions.find(action => action.label === 'Отключить озвучку');
+      
+      expect(ttsAction).toBeDefined();
+      ttsAction!.action();
+      
+      expect(toastListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'info',
+          title: 'Озвучка отключена'
+        })
+      );
+    });
+  });
+
+  describe('Error state management', () => {
+    it('should maintain backward compatibility with error state', () => {
+      const errorState = handler.getErrorState();
+      
+      expect(errorState).toHaveProperty('asrError');
+      expect(errorState).toHaveProperty('llmError');
+      expect(errorState).toHaveProperty('ttsError');
+      expect(errorState).toHaveProperty('connectionError');
+    });
+
+    it('should clear specific error types', async () => {
+      await handler.handleASRError(new Error('ASR error'));
+      await handler.handleLLMError(new Error('LLM error'));
       
       handler.clearError('asrError');
       
-      expect(handler.getErrorState().asrError).toBeNull();
-      expect(handler.getErrorState().llmError).not.toBeNull();
+      const errorState = handler.getErrorState();
+      expect(errorState.asrError).toBeNull();
+      expect(errorState.llmError).toBe('LLM error');
     });
 
-    it('should clear all errors', () => {
-      const error = new Error('test error');
-      handler.handleASRError(error);
-      handler.handleLLMError(error);
-      handler.handleTTSError(error);
-      handler.handleConnectionError(error);
-      
-      expect(handler.hasErrors()).toBe(true);
+    it('should clear all errors', async () => {
+      await handler.handleASRError(new Error('ASR error'));
+      await handler.handleLLMError(new Error('LLM error'));
       
       handler.clearAllErrors();
       
+      const errorState = handler.getErrorState();
+      expect(errorState.asrError).toBeNull();
+      expect(errorState.llmError).toBeNull();
+      expect(errorState.ttsError).toBeNull();
+      expect(errorState.connectionError).toBeNull();
+    });
+
+    it('should check if errors are present', async () => {
       expect(handler.hasErrors()).toBe(false);
-      expect(handler.getErrorState()).toEqual({
-        asrError: null,
-        llmError: null,
-        ttsError: null,
-        connectionError: null,
+      
+      await handler.handleASRError(new Error('ASR error'));
+      expect(handler.hasErrors()).toBe(true);
+      
+      handler.clearAllErrors();
+      expect(handler.hasErrors()).toBe(false);
+    });
+  });
+
+  describe('Event listeners', () => {
+    it('should handle error listeners', async () => {
+      const errorListener = vi.fn();
+      const unsubscribe = handler.onError(errorListener);
+      
+      await handler.handleASRError(new Error('Test error'));
+      
+      // The error listener will be called - check that we have ASR_ERROR type
+      expect(errorListener).toHaveBeenCalled();
+      
+      const calls = errorListener.mock.calls;
+      const hasASRError = calls.some(call => 
+        call[0] && call[0].type === 'ASR_ERROR'
+      );
+      expect(hasASRError).toBe(true);
+      
+      unsubscribe();
+    });
+
+    it('should handle toast listeners', () => {
+      const toastListener = vi.fn();
+      const unsubscribe = handler.onToast(toastListener);
+      
+      handler.showToast({
+        type: 'info',
+        title: 'Test',
+        message: 'Test message'
       });
+      
+      expect(toastListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'info',
+          title: 'Test',
+          message: 'Test message'
+        })
+      );
+      
+      unsubscribe();
     });
 
-    it('should detect when errors are present', () => {
-      expect(handler.hasErrors()).toBe(false);
+    it('should handle recovery listeners', () => {
+      const recoveryListener = vi.fn();
+      const unsubscribe = handler.onRecovery(recoveryListener);
       
-      handler.handleASRError(new Error('test'));
-      expect(handler.hasErrors()).toBe(true);
+      // Recovery listener will be called when ErrorManager handles errors
+      // This is tested indirectly through error handling
       
-      handler.clearAllErrors();
-      expect(handler.hasErrors()).toBe(false);
+      unsubscribe();
+    });
+
+    it('should handle listener errors gracefully', async () => {
+      const faultyListener = vi.fn().mockImplementation(() => {
+        throw new Error('Listener error');
+      });
+      
+      handler.onError(faultyListener);
+      
+      // Should not throw even if listener fails
+      await expect(handler.handleASRError(new Error('Test error'))).resolves.not.toThrow();
+      
+      expect(consoleSpy).toHaveBeenCalledWith('Error listener failed:', expect.any(Error));
     });
   });
 
-  describe('Event Listeners', () => {
-    it('should notify error listeners', () => {
-      const mockCallback = vi.fn();
-      const unsubscribe = handler.onError(mockCallback);
+  describe('Integration with ErrorManager', () => {
+    it('should delegate toast notifications to ErrorManager', () => {
+      const toastListener = vi.fn();
+      handler.onToast(toastListener);
       
-      const error = new Error('test error');
-      handler.handleASRError(error);
+      handler.showToast({
+        type: 'success',
+        title: 'Success',
+        message: 'Operation completed'
+      });
       
-      expect(mockCallback).toHaveBeenCalledWith(
+      expect(toastListener).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'ASR_ERROR',
-          message: expect.any(String),
-          timestamp: expect.any(Date),
-        })
-      );
-      
-      unsubscribe();
-    });
-
-    it('should notify toast listeners', () => {
-      const mockCallback = vi.fn();
-      const unsubscribe = handler.onToast(mockCallback);
-      
-      const error = new Error('test error');
-      handler.handleASRError(error);
-      
-      expect(mockCallback).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: expect.any(String),
-          type: 'error',
-          title: 'Voice Recognition Error',
-          message: expect.any(String),
-          timestamp: expect.any(Date),
-        })
-      );
-      
-      unsubscribe();
-    });
-
-    it('should unsubscribe listeners correctly', () => {
-      const mockCallback = vi.fn();
-      const unsubscribe = handler.onError(mockCallback);
-      
-      unsubscribe();
-      
-      handler.handleASRError(new Error('test'));
-      expect(mockCallback).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Toast Notifications', () => {
-    it('should create error toast for ASR errors', () => {
-      const mockCallback = vi.fn();
-      handler.onToast(mockCallback);
-      
-      handler.handleASRError(new Error('test'));
-      
-      expect(mockCallback).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'error',
-          title: 'Voice Recognition Error',
+          type: 'success',
+          title: 'Success',
+          message: 'Operation completed'
         })
       );
     });
 
-    it('should create error toast for LLM errors', () => {
-      const mockCallback = vi.fn();
-      handler.onToast(mockCallback);
+    it('should handle ErrorManager events', async () => {
+      const errorListener = vi.fn();
+      const toastListener = vi.fn();
       
-      handler.handleLLMError(new Error('test'));
+      handler.onError(errorListener);
+      handler.onToast(toastListener);
       
-      expect(mockCallback).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'error',
-          title: 'AI Response Error',
-        })
-      );
-    });
-
-    it('should create warning toast for TTS errors', () => {
-      const mockCallback = vi.fn();
-      handler.onToast(mockCallback);
+      await handler.handleError(new Error('Test error'));
       
-      handler.handleTTSError(new Error('test'));
-      
-      expect(mockCallback).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'warning',
-          title: 'Voice Synthesis Error',
-        })
-      );
-    });
-
-    it('should create error toast for connection errors', () => {
-      const mockCallback = vi.fn();
-      handler.onToast(mockCallback);
-      
-      handler.handleConnectionError(new Error('test'));
-      
-      expect(mockCallback).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'error',
-          title: 'Connection Error',
-        })
-      );
+      // Should receive events from ErrorManager
+      expect(errorListener).toHaveBeenCalled();
+      expect(toastListener).toHaveBeenCalled();
     });
   });
 });

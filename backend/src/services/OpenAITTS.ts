@@ -1,5 +1,6 @@
 import { TTSService, TTSOptions } from '../types';
 import { globalRateLimiter } from './RateLimiter';
+import { TTSCache } from './CacheService';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -9,15 +10,17 @@ export class OpenAITTS implements TTSService {
   private apiKey: string;
   private baseURL: string = 'https://api.openai.com/v1';
   private audioDir: string;
+  private cache: TTSCache;
   private maxRetries: number = 3;
   private baseRetryDelay: number = 1000;
   private maxRetryDelay: number = 30000;
   private backoffMultiplier: number = 2;
   private requestTimeout: number = 30000;
   private fallbackToTextMode: boolean = true;
+  private enableCaching: boolean = true;
   private healthStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, cachePath?: string) {
     this.apiKey = apiKey !== undefined ? apiKey : (process.env.OPENAI_API_KEY || '');
     
     // Create audio directory if it doesn't exist
@@ -25,6 +28,10 @@ export class OpenAITTS implements TTSService {
     if (!fs.existsSync(this.audioDir)) {
       fs.mkdirSync(this.audioDir, { recursive: true });
     }
+
+    // Initialize cache
+    const defaultCachePath = path.join(process.cwd(), 'temp', 'tts-cache.json');
+    this.cache = new TTSCache(cachePath || defaultCachePath);
   }
 
   async synthesizeSpeech(text: string, options: TTSOptions = { voice: 'alloy', speed: 1.0, pitch: 1.0 }): Promise<string> {
@@ -36,6 +43,25 @@ export class OpenAITTS implements TTSService {
       throw new Error('OpenAI TTS service not available - missing API key');
     }
 
+    // Create cache key from text and options
+    const cacheKey = this.createCacheKey(text, options);
+    
+    // Try to get cached audio URL first
+    if (this.enableCaching) {
+      const cachedUrl = await this.cache.get(cacheKey);
+      if (cachedUrl) {
+        // Verify the cached audio file still exists
+        const audioPath = this.getAudioFilePathFromUrl(cachedUrl);
+        if (fs.existsSync(audioPath)) {
+          console.log('TTS response served from cache');
+          return cachedUrl;
+        } else {
+          // Remove invalid cache entry
+          this.cache.delete(cacheKey);
+        }
+      }
+    }
+
     let attempts = 0;
     let lastError: any;
 
@@ -45,7 +71,14 @@ export class OpenAITTS implements TTSService {
         await globalRateLimiter.acquire('openai-tts', 'medium');
         
         // Call TTS API with timeout
-        return await this.callTTSWithTimeout(text, options);
+        const audioUrl = await this.callTTSWithTimeout(text, options);
+        
+        // Cache the audio URL if caching is enabled
+        if (this.enableCaching && !audioUrl.startsWith('TEXT_ONLY:')) {
+          await this.cache.set(cacheKey, audioUrl);
+        }
+        
+        return audioUrl;
       } catch (error: any) {
         attempts++;
         lastError = error;
@@ -473,15 +506,71 @@ export class OpenAITTS implements TTSService {
   }
 
   /**
+   * Create cache key from text and options
+   */
+  private createCacheKey(text: string, options: TTSOptions): string {
+    const cacheInput = {
+      text: text.trim(),
+      voice: this.mapVoice(options.voice),
+      speed: Math.max(0.25, Math.min(4.0, options.speed)),
+      model: 'tts-1'
+    };
+    
+    return JSON.stringify(cacheInput);
+  }
+
+  /**
+   * Get audio file path from URL
+   */
+  private getAudioFilePathFromUrl(url: string): string {
+    const filename = path.basename(url);
+    return path.join(this.audioDir, filename);
+  }
+
+  /**
+   * Enable or disable caching
+   */
+  setCachingEnabled(enabled: boolean): void {
+    this.enableCaching = enabled;
+  }
+
+  /**
+   * Clear cache
+   */
+  clearCache(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats() {
+    return this.cache.getStats();
+  }
+
+  /**
+   * Cleanup expired cache entries
+   */
+  cleanupCache(): number {
+    return this.cache.cleanup();
+  }
+
+  /**
    * Perform cleanup and recovery operations
    */
-  async performMaintenance(): Promise<{ cleaned: number; errors: string[] }> {
+  async performMaintenance(): Promise<{ cleaned: number; errors: string[]; cacheStats: any }> {
     const errors: string[] = [];
     let cleaned = 0;
     
     try {
       // Clean up old audio files
       cleaned = this.cleanupOldFiles(60); // Clean files older than 1 hour
+      
+      // Clean up expired cache entries
+      const expiredCacheEntries = this.cleanupCache();
+      if (expiredCacheEntries > 0) {
+        console.log(`Cleaned up ${expiredCacheEntries} expired TTS cache entries`);
+      }
       
       // Verify audio directory is writable
       const testFile = path.join(this.audioDir, 'test-write.tmp');
@@ -501,6 +590,17 @@ export class OpenAITTS implements TTSService {
       errors.push(`Maintenance error: ${error}`);
     }
     
-    return { cleaned, errors };
+    return { 
+      cleaned, 
+      errors, 
+      cacheStats: this.cache.getStats() 
+    };
+  }
+
+  /**
+   * Shutdown service and cleanup resources
+   */
+  async shutdown(): Promise<void> {
+    await this.cache.shutdown();
   }
 }

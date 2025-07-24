@@ -1,7 +1,9 @@
 import { OpenAI } from 'openai';
 import { LLMService, GameContext, ErrorResponse } from '../types';
 import { globalRateLimiter } from './RateLimiter';
+import { LLMCache } from './CacheService';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 
 // Load environment variables
 dotenv.config();
@@ -12,19 +14,21 @@ dotenv.config();
  */
 export class OpenAILLM implements LLMService {
   private client: OpenAI;
+  private cache: LLMCache;
   private maxRetries: number = 3;
   private baseRetryDelay: number = 1000; // ms
   private maxRetryDelay: number = 30000; // ms
   private backoffMultiplier: number = 2;
   private model: string = 'gpt-4o';
   private requestTimeout: number = 60000; // 60 seconds
+  private enableCaching: boolean = true;
   private fallbackResponses: string[] = [
     'Извините, у меня временные проблемы с подключением. Попробуйте повторить ваш запрос.',
     'Сейчас я испытываю технические трудности. Пожалуйста, попробуйте еще раз через несколько секунд.',
     'Произошла временная ошибка. Повторите ваше действие, пожалуйста.'
   ];
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, cachePath?: string) {
     // Use provided API key or get from environment variables
     const key = apiKey || process.env.OPENAI_API_KEY;
     
@@ -35,6 +39,10 @@ export class OpenAILLM implements LLMService {
     this.client = new OpenAI({
       apiKey: key
     });
+
+    // Initialize cache
+    const defaultCachePath = path.join(process.cwd(), 'temp', 'llm-cache.json');
+    this.cache = new LLMCache(cachePath || defaultCachePath);
   }
 
   /**
@@ -44,6 +52,18 @@ export class OpenAILLM implements LLMService {
    * @returns AI-generated response
    */
   async generateResponse(prompt: string, context: GameContext): Promise<string> {
+    // Create cache key from prompt and relevant context
+    const cacheKey = this.createCacheKey(prompt, context);
+    
+    // Try to get cached response first
+    if (this.enableCaching) {
+      const cachedResponse = await this.cache.get(cacheKey);
+      if (cachedResponse) {
+        console.log('LLM response served from cache');
+        return cachedResponse;
+      }
+    }
+
     let attempts = 0;
     let lastError: any;
     
@@ -53,7 +73,14 @@ export class OpenAILLM implements LLMService {
         await globalRateLimiter.acquire('openai-chat', 'high');
         
         // Call OpenAI API with timeout
-        return await this.callOpenAIWithTimeout(prompt, context);
+        const response = await this.callOpenAIWithTimeout(prompt, context);
+        
+        // Cache the response if caching is enabled
+        if (this.enableCaching) {
+          await this.cache.set(cacheKey, response);
+        }
+        
+        return response;
       } catch (error: any) {
         attempts++;
         lastError = error;
@@ -449,6 +476,55 @@ Your goal is to create an immersive and engaging RPG experience through text.`;
   }
 
   /**
+   * Create cache key from prompt and context
+   */
+  private createCacheKey(prompt: string, context: GameContext): string {
+    // Include relevant context that affects the response
+    const cacheInput = {
+      prompt: prompt.trim().toLowerCase(),
+      storyId: context.story.id,
+      genre: context.story.genre,
+      model: this.model,
+      // Include recent conversation history (last 5 messages)
+      recentHistory: context.conversationHistory.slice(-5),
+      // Include character state if it affects responses
+      characterState: context.characterState,
+      // Include relevant game state
+      gameState: context.gameState
+    };
+    
+    return JSON.stringify(cacheInput);
+  }
+
+  /**
+   * Enable or disable caching
+   */
+  setCachingEnabled(enabled: boolean): void {
+    this.enableCaching = enabled;
+  }
+
+  /**
+   * Clear cache
+   */
+  clearCache(): void {
+    this.cache.clear();
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats() {
+    return this.cache.getStats();
+  }
+
+  /**
+   * Cleanup expired cache entries
+   */
+  cleanupCache(): number {
+    return this.cache.cleanup();
+  }
+
+  /**
    * Get service health status
    */
   async getHealthStatus(): Promise<{ status: 'healthy' | 'degraded' | 'unhealthy'; details: any }> {
@@ -466,7 +542,8 @@ Your goal is to create an immersive and engaging RPG experience through text.`;
         status: 'healthy',
         details: {
           model: this.model,
-          rateLimiter: globalRateLimiter.getMetrics('openai-chat')
+          rateLimiter: globalRateLimiter.getMetrics('openai-chat'),
+          cache: this.cache.getStats()
         }
       };
     } catch (error: any) {
@@ -477,9 +554,17 @@ Your goal is to create an immersive and engaging RPG experience through text.`;
         details: {
           error: error.message,
           type: errorType,
-          rateLimiter: globalRateLimiter.getMetrics('openai-chat')
+          rateLimiter: globalRateLimiter.getMetrics('openai-chat'),
+          cache: this.cache.getStats()
         }
       };
     }
+  }
+
+  /**
+   * Shutdown service and cleanup resources
+   */
+  async shutdown(): Promise<void> {
+    await this.cache.shutdown();
   }
 }

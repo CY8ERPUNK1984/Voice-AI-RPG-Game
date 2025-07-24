@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { VoiceInput } from '../VoiceInput';
 import { HybridASR } from '@/services/HybridASR';
 
@@ -56,7 +56,7 @@ describe('VoiceInput', () => {
   it('should show recording indicator when recording', () => {
     render(<VoiceInput {...mockProps} isRecording={true} />);
     
-    expect(screen.getByText('Запись...')).toBeInTheDocument();
+    expect(screen.getByText(/Запись\.\.\./)).toBeInTheDocument();
   });
 
   it('should start recording when start button is clicked', async () => {
@@ -86,9 +86,11 @@ describe('VoiceInput', () => {
     render(<VoiceInput {...mockProps} />);
     
     // Simulate successful result
-    if (mockAsrService.onResult) {
-      mockAsrService.onResult('Hello world');
-    }
+    await act(async () => {
+      if (mockAsrService.onResult) {
+        mockAsrService.onResult('Hello world');
+      }
+    });
 
     await waitFor(() => {
       expect(mockProps.onVoiceInput).toHaveBeenCalledWith('Hello world');
@@ -101,9 +103,11 @@ describe('VoiceInput', () => {
     
     // Simulate error
     const testError = new Error('Test error');
-    if (mockAsrService.onError) {
-      mockAsrService.onError(testError);
-    }
+    await act(async () => {
+      if (mockAsrService.onError) {
+        mockAsrService.onError(testError);
+      }
+    });
 
     await waitFor(() => {
       expect(screen.getByText('Test error')).toBeInTheDocument();
@@ -189,19 +193,19 @@ describe('VoiceInput', () => {
   it('should have proper accessibility attributes', () => {
     render(<VoiceInput {...mockProps} />);
     
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('button', { name: /начать запись/i });
     expect(button).toHaveAttribute('aria-label', 'Начать запись');
   });
 
   it('should apply correct CSS classes based on state', () => {
     const { rerender } = render(<VoiceInput {...mockProps} />);
     
-    let button = screen.getByRole('button');
+    let button = screen.getByRole('button', { name: /начать запись/i });
     expect(button).toHaveClass('bg-blue-500', 'hover:bg-blue-600');
 
     // Recording state
     rerender(<VoiceInput {...mockProps} isRecording={true} />);
-    button = screen.getByRole('button');
+    button = screen.getByRole('button', { name: /остановить запись/i });
     expect(button).toHaveClass('bg-red-500', 'hover:bg-red-600', 'animate-pulse');
   });
 });
