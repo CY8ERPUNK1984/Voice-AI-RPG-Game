@@ -114,7 +114,8 @@ The application features a robust connection management system with comprehensiv
 - **React 18** with modern hooks and concurrent features
 - **Vite** for lightning-fast development and builds
 - **Tailwind CSS** for responsive, utility-first styling
-- **Zustand** for lightweight state management
+- **React Context API** for centralized application state management with AppContext
+- **Zustand** for lightweight component-level state management
 - **Socket.io Client** with enhanced ConnectionManager for reliable real-time communication
 - **Web Speech API** + **OpenAI Whisper** for voice input with optimized audio quality settings
 - **Web Speech API** + **OpenAI TTS** for voice output
@@ -178,6 +179,51 @@ interface SessionHealth {
 }
 ```
 
+### State Management
+
+The application uses a hybrid approach to state management for optimal performance and developer experience:
+
+#### AppContext (Global State)
+Centralized React Context API implementation for application-wide state management:
+
+```typescript
+interface AppContextState {
+  currentStory: Story | null;        // Currently selected story
+  gameSession: GameSession | null;   // Active game session
+  isConnected: boolean;              // WebSocket connection status
+  stories: Story[];                  // Available story scenarios
+  storiesLoading: boolean;           // Stories loading state
+  offlineMode: boolean;              // Offline mode indicator
+}
+```
+
+**Key Features:**
+- **Reducer Pattern**: Predictable state updates with typed actions
+- **Convenience Methods**: Simple API for common state operations
+- **Connection Awareness**: Real-time connection status tracking
+- **Offline Support**: Automatic offline mode detection
+- **Type Safety**: Full TypeScript support with strict typing
+
+**Usage Example:**
+```typescript
+import { useApp } from '@/contexts/AppContext';
+
+function GameComponent() {
+  const { state, setCurrentStory, setConnectionStatus } = useApp();
+  
+  // Access global state
+  const { currentStory, isConnected, offlineMode } = state;
+  
+  // Update state
+  const handleStorySelect = (story: Story) => {
+    setCurrentStory(story);
+  };
+}
+```
+
+#### Component-Level State (Zustand)
+Lightweight state management for component-specific state that doesn't need global access.
+
 ### AI Services Integration
 - **ASR**: Web Speech API (primary) + OpenAI Whisper (fallback) with enhanced audio quality settings
   - Echo cancellation, noise suppression, and auto gain control
@@ -192,6 +238,7 @@ voice-ai-rpg-game/
 ├── 📁 frontend/              # React application
 │   ├── 📁 src/
 │   │   ├── 📁 components/    # React components
+│   │   ├── 📁 contexts/      # React Context providers (AppContext)
 │   │   ├── 📁 services/      # API clients & integrations
 │   │   ├── 📁 types/         # TypeScript definitions
 │   │   └── 📁 utils/         # Utility functions
@@ -221,6 +268,33 @@ voice-ai-rpg-game/
 3. **AI Responses**: The AI game master responds with voice and text
 4. **Customize Experience**: Adjust audio settings to your preference
 5. **Explore & Enjoy**: Use natural language to interact with the game world
+
+### Application State Management
+
+The app uses centralized state management through React Context API:
+
+```typescript
+// Wrap your app with AppProvider
+import { AppProvider } from '@/contexts/AppContext';
+
+function App() {
+  return (
+    <AppProvider>
+      <YourAppComponents />
+    </AppProvider>
+  );
+}
+
+// Use the context in components
+import { useApp } from '@/contexts/AppContext';
+
+function GameComponent() {
+  const { state, setCurrentStory, setConnectionStatus } = useApp();
+  
+  // Access current story, connection status, etc.
+  const { currentStory, isConnected, offlineMode } = state;
+}
+```
 
 ### Example Commands
 - "I want to explore the mysterious forest"
@@ -390,6 +464,7 @@ npm run start
 - Complete voice pipeline (ASR → LLM → TTS)
 - Real-time Socket.io communication between frontend and backend
 - Story selection and game session management
+- Centralized application state management with React Context API
 - Comprehensive error handling and fallback mechanisms
 - Audio settings with persistent storage
 - Enhanced loading states and progress indicators
@@ -437,6 +512,7 @@ npm run start
 - **Mock Lifecycle Management**: Proper setup and teardown of browser API mocks with original value restoration
 - **Enhanced Error Handling**: Centralized error management with recovery suggestions and user-friendly Russian error messages
 - **Session Management Enhancement**: Advanced session metrics, health monitoring, and persistence capabilities
+- **AppContext Implementation**: Centralized React Context API for application state management with reducer pattern
 
 ### 🚧 In Progress (Phase 6)
 - **Performance Optimization**: Session cleanup, request caching, and audio processing improvements
@@ -477,6 +553,7 @@ npm run start
 - **WebSpeechTTS Test Infrastructure**: Enhanced browser API mocking with proper setup/teardown, cross-browser compatibility testing, and mock lifecycle management
 - **Service Resilience Testing**: Comprehensive error recovery scenarios, concurrent request handling, and runtime availability validation
 - **Audio Quality Enhancement**: Updated HybridASR tests to validate enhanced audio constraints with echo cancellation, noise suppression, and optimized sample rates
+- **AppContext State Management**: Implemented centralized React Context API with reducer pattern for application-wide state management
 - Fixed Socket.io integration between frontend and backend
 - Resolved TypeScript compatibility issues with Socket.io types
 - Improved error handling for real-time message processing
