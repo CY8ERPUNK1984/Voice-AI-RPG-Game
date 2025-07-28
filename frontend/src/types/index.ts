@@ -391,8 +391,7 @@ export interface Service {
   readonly initialize: () => Promise<Result<void, AppError>>;
   readonly cleanup: () => Promise<Result<void, AppError>>;
 }
-//
- Type guards for runtime type checking
+// Type guards for runtime type checking
 export function isNonEmptyString(value: unknown): value is NonEmptyString {
   return typeof value === 'string' && value.length > 0;
 }

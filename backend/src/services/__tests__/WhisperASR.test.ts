@@ -301,7 +301,16 @@ describe('WhisperASR', () => {
         maxRetries: 3,
         timeout: 60000,
         fallbackEnabled: true,
-        healthStatus: 'healthy'
+        healthStatus: 'healthy',
+        audioOptimization: {
+          enableCompression: true,
+          enableNoiseReduction: false,
+          enableSilenceTrimming: true,
+          enableVolumeNormalization: false,
+          maxDuration: 300,
+          targetBitrate: 64
+        },
+        bufferPoolSize: 0
       });
     });
 

@@ -1,663 +1,556 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
+import { EventEmitter } from 'events';
+import { getLogger } from './Logger';
 
-interface PerformanceMetric {
+export interface MetricValue {
+  value: number;
   timestamp: Date;
-  service: string;
-  operation: string;
-  duration: number; // milliseconds
-  success: boolean;
-  error?: string;
-  metadata?: Record<string, any>;
+  labels?: Record<string, string>;
 }
 
-interface ServiceMetrics {
-  totalRequests: number;
-  successfulRequests: number;
-  failedRequests: number;
-  averageResponseTime: number;
-  minResponseTime: number;
-  maxResponseTime: number;
-  p95ResponseTime: number;
-  p99ResponseTime: number;
-  errorRate: number;
-  requestsPerMinute: number;
-  lastActivity: Date;
+export interface MetricSummary {
+  count: number;
+  sum: number;
+  min: number;
+  max: number;
+  avg: number;
+  p50: number;
+  p95: number;
+  p99: number;
 }
 
-interface SystemMetrics {
-  timestamp: Date;
+export interface ResourceMetrics {
   cpu: {
     usage: number; // percentage
     loadAverage: number[];
   };
   memory: {
-    used: number; // bytes
-    free: number; // bytes
-    total: number; // bytes
-    usage: number; // percentage
+    used: number;
+    free: number;
+    total: number;
+    percentage: number;
+    heapUsed: number;
+    heapTotal: number;
   };
-  process: {
-    pid: number;
-    uptime: number; // seconds
-    memoryUsage: NodeJS.MemoryUsage;
-    cpuUsage: NodeJS.CpuUsage;
+  disk: {
+    used: number;
+    free: number;
+    total: number;
+    percentage: number;
+  };
+  network: {
+    bytesIn: number;
+    bytesOut: number;
+    connectionsActive: number;
   };
 }
 
-interface AlertRule {
+export interface ServiceMetrics {
+  name: string;
+  responseTime: MetricSummary;
+  throughput: number; // requests per second
+  errorRate: number; // percentage
+  availability: number; // percentage
+  lastUpdate: Date;
+}
+
+export interface AlertRule {
   id: string;
   name: string;
-  condition: (metrics: ServiceMetrics | SystemMetrics) => boolean;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  cooldown: number; // milliseconds
-  lastTriggered?: Date;
+  metric: string;
+  condition: 'gt' | 'lt' | 'eq' | 'gte' | 'lte';
+  threshold: number;
+  duration: number; // seconds
   enabled: boolean;
+  labels?: Record<string, string>;
 }
 
-interface Alert {
+export interface Alert {
   id: string;
-  ruleId: string;
+  rule: AlertRule;
+  value: number;
   timestamp: Date;
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  status: 'firing' | 'resolved';
   message: string;
-  data: any;
-  resolved: boolean;
-  resolvedAt?: Date;
 }
 
-export class PerformanceMonitor {
-  private metrics: PerformanceMetric[] = [];
-  private systemMetrics: SystemMetrics[] = [];
-  private alerts: Alert[] = [];
-  private alertRules: AlertRule[] = [];
-  private maxMetricsHistory: number = 10000;
-  private maxSystemMetricsHistory: number = 1000;
-  private maxAlertsHistory: number = 1000;
-  private metricsCollectionInterval?: NodeJS.Timeout;
-  private persistenceInterval?: NodeJS.Timeout;
-  private persistencePath?: string;
-  private enablePersistence: boolean = false;
-  private startTime: Date = new Date();
+class PerformanceMonitor extends EventEmitter {
+  private metrics: Map<string, MetricValue[]> = new Map();
+  private counters: Map<string, number> = new Map();
+  private gauges: Map<string, number> = new Map();
+  private histograms: Map<string, number[]> = new Map();
+  private alertRules: Map<string, AlertRule> = new Map();
+  private activeAlerts: Map<string, Alert> = new Map();
+  private logger = getLogger();
+  private metricsRetentionMs = 24 * 60 * 60 * 1000; // 24 hours
+  private cleanupInterval: NodeJS.Timeout;
+  private resourceMonitorInterval: NodeJS.Timeout;
+  private alertCheckInterval: NodeJS.Timeout;
 
-  constructor(options: {
-    maxMetricsHistory?: number;
-    maxSystemMetricsHistory?: number;
-    maxAlertsHistory?: number;
-    persistencePath?: string;
-    enablePersistence?: boolean;
-  } = {}) {
-    this.maxMetricsHistory = options.maxMetricsHistory || 10000;
-    this.maxSystemMetricsHistory = options.maxSystemMetricsHistory || 1000;
-    this.maxAlertsHistory = options.maxAlertsHistory || 1000;
-    this.persistencePath = options.persistencePath;
-    this.enablePersistence = options.enablePersistence || false;
+  constructor() {
+    super();
+    
+    // Start background tasks
+    this.cleanupInterval = setInterval(() => this.cleanupOldMetrics(), 60000); // Every minute
+    this.resourceMonitorInterval = setInterval(() => this.collectResourceMetrics(), 5000); // Every 5 seconds
+    this.alertCheckInterval = setInterval(() => this.checkAlerts(), 10000); // Every 10 seconds
 
-    // Initialize default alert rules
-    this.initializeDefaultAlertRules();
+    // Graceful shutdown
+    process.on('SIGINT', () => this.shutdown());
+    process.on('SIGTERM', () => this.shutdown());
 
-    // Start system metrics collection
-    this.startSystemMetricsCollection();
-
-    // Start persistence if enabled
-    if (this.enablePersistence && this.persistencePath) {
-      this.startPersistence();
-      this.loadPersistedData().catch(error => {
-        console.warn('Failed to load persisted performance data:', error);
-      });
-    }
+    this.logger.info('PerformanceMonitor initialized', {}, 'performance-monitor');
   }
 
-  /**
-   * Record a performance metric
-   */
-  recordMetric(
-    service: string,
-    operation: string,
-    duration: number,
-    success: boolean,
-    error?: string,
-    metadata?: Record<string, any>
-  ): void {
-    const metric: PerformanceMetric = {
-      timestamp: new Date(),
-      service,
-      operation,
-      duration,
-      success,
-      error,
-      metadata
-    };
-
-    this.metrics.push(metric);
-
-    // Trim metrics if we exceed the limit
-    if (this.metrics.length > this.maxMetricsHistory) {
-      this.metrics = this.metrics.slice(-this.maxMetricsHistory);
-    }
-
-    // Check alert rules
-    this.checkAlertRules();
+  // Counter metrics (monotonically increasing)
+  incrementCounter(name: string, value: number = 1, labels?: Record<string, string>): void {
+    const key = this.getMetricKey(name, labels);
+    const current = this.counters.get(key) || 0;
+    this.counters.set(key, current + value);
+    
+    this.recordMetric(name, current + value, labels);
+    this.logger.debug(`Counter incremented: ${name}`, { value, labels }, 'performance-monitor');
   }
 
-  /**
-   * Create a timer for measuring operation duration
-   */
-  startTimer(service: string, operation: string, metadata?: Record<string, any>) {
+  // Gauge metrics (can go up or down)
+  setGauge(name: string, value: number, labels?: Record<string, string>): void {
+    const key = this.getMetricKey(name, labels);
+    this.gauges.set(key, value);
+    
+    this.recordMetric(name, value, labels);
+    this.logger.debug(`Gauge set: ${name}`, { value, labels }, 'performance-monitor');
+  }
+
+  // Histogram metrics (for response times, etc.)
+  recordHistogram(name: string, value: number, labels?: Record<string, string>): void {
+    const key = this.getMetricKey(name, labels);
+    const values = this.histograms.get(key) || [];
+    values.push(value);
+    this.histograms.set(key, values);
+    
+    this.recordMetric(name, value, labels);
+    this.logger.debug(`Histogram recorded: ${name}`, { value, labels }, 'performance-monitor');
+  }
+
+  // Timer utility for measuring durations
+  startTimer(name: string, labels?: Record<string, string>): () => void {
     const startTime = Date.now();
     
-    return {
-      end: (success: boolean = true, error?: string) => {
-        const duration = Date.now() - startTime;
-        this.recordMetric(service, operation, duration, success, error, metadata);
-        return duration;
-      }
+    return () => {
+      const duration = Date.now() - startTime;
+      this.recordHistogram(name, duration, labels);
+      return duration;
     };
   }
 
-  /**
-   * Get metrics for a specific service
-   */
-  getServiceMetrics(service: string, timeWindow?: number): ServiceMetrics {
-    const cutoffTime = timeWindow ? new Date(Date.now() - timeWindow) : new Date(0);
-    const serviceMetrics = this.metrics.filter(
-      m => m.service === service && m.timestamp >= cutoffTime
-    );
-
-    if (serviceMetrics.length === 0) {
-      return {
-        totalRequests: 0,
-        successfulRequests: 0,
-        failedRequests: 0,
-        averageResponseTime: 0,
-        minResponseTime: 0,
-        maxResponseTime: 0,
-        p95ResponseTime: 0,
-        p99ResponseTime: 0,
-        errorRate: 0,
-        requestsPerMinute: 0,
-        lastActivity: new Date(0)
-      };
-    }
-
-    const durations = serviceMetrics.map(m => m.duration).sort((a, b) => a - b);
-    const successfulRequests = serviceMetrics.filter(m => m.success).length;
-    const failedRequests = serviceMetrics.length - successfulRequests;
+  // Async timer wrapper
+  async timeAsync<T>(
+    name: string,
+    fn: () => Promise<T>,
+    labels?: Record<string, string>
+  ): Promise<T> {
+    const endTimer = this.startTimer(name, labels);
     
-    // Calculate percentiles
-    const p95Index = Math.floor(durations.length * 0.95);
-    const p99Index = Math.floor(durations.length * 0.99);
-
-    // Calculate requests per minute
-    const timeSpanMinutes = timeWindow ? timeWindow / (60 * 1000) : 
-      (Date.now() - serviceMetrics[0].timestamp.getTime()) / (60 * 1000);
-    const requestsPerMinute = timeSpanMinutes > 0 ? serviceMetrics.length / timeSpanMinutes : 0;
-
-    return {
-      totalRequests: serviceMetrics.length,
-      successfulRequests,
-      failedRequests,
-      averageResponseTime: durations.reduce((sum, d) => sum + d, 0) / durations.length,
-      minResponseTime: durations[0],
-      maxResponseTime: durations[durations.length - 1],
-      p95ResponseTime: durations[p95Index] || 0,
-      p99ResponseTime: durations[p99Index] || 0,
-      errorRate: failedRequests / serviceMetrics.length,
-      requestsPerMinute,
-      lastActivity: serviceMetrics[serviceMetrics.length - 1].timestamp
-    };
+    try {
+      const result = await fn();
+      endTimer();
+      return result;
+    } catch (error) {
+      endTimer();
+      this.incrementCounter(`${name}_errors`, 1, labels);
+      throw error;
+    }
   }
 
-  /**
-   * Get all service names that have metrics
-   */
-  getServices(): string[] {
-    const services = new Set(this.metrics.map(m => m.service));
-    return Array.from(services);
+  // Service-specific metrics
+  recordServiceMetrics(serviceName: string, responseTime: number, success: boolean): void {
+    const labels = { service: serviceName };
+    
+    this.recordHistogram('service_response_time', responseTime, labels);
+    this.incrementCounter('service_requests_total', 1, labels);
+    
+    if (!success) {
+      this.incrementCounter('service_errors_total', 1, labels);
+    }
   }
 
-  /**
-   * Get system metrics
-   */
-  getCurrentSystemMetrics(): SystemMetrics {
+  // Resource metrics collection
+  private async collectResourceMetrics(): Promise<void> {
+    try {
+      const metrics = await this.getResourceMetrics();
+      
+      // CPU metrics
+      this.setGauge('system_cpu_usage_percent', metrics.cpu.usage);
+      this.setGauge('system_load_average_1m', metrics.cpu.loadAverage[0]);
+      this.setGauge('system_load_average_5m', metrics.cpu.loadAverage[1]);
+      this.setGauge('system_load_average_15m', metrics.cpu.loadAverage[2]);
+      
+      // Memory metrics
+      this.setGauge('system_memory_used_bytes', metrics.memory.used);
+      this.setGauge('system_memory_free_bytes', metrics.memory.free);
+      this.setGauge('system_memory_usage_percent', metrics.memory.percentage);
+      this.setGauge('process_heap_used_bytes', metrics.memory.heapUsed);
+      this.setGauge('process_heap_total_bytes', metrics.memory.heapTotal);
+      
+      // Network metrics
+      this.setGauge('network_connections_active', metrics.network.connectionsActive);
+      
+    } catch (error) {
+      this.logger.error('Failed to collect resource metrics', error as Error, {}, 'performance-monitor');
+    }
+  }
+
+  // Get current resource metrics
+  private async getResourceMetrics(): Promise<ResourceMetrics> {
+    const os = await import('os');
+    
     const memoryUsage = process.memoryUsage();
-    const cpuUsage = process.cpuUsage();
     const totalMemory = os.totalmem();
     const freeMemory = os.freemem();
     const usedMemory = totalMemory - freeMemory;
-
+    
     return {
-      timestamp: new Date(),
       cpu: {
-        usage: this.calculateCpuUsage(cpuUsage),
+        usage: await this.getCpuUsage(),
         loadAverage: os.loadavg()
       },
       memory: {
         used: usedMemory,
         free: freeMemory,
         total: totalMemory,
-        usage: (usedMemory / totalMemory) * 100
+        percentage: (usedMemory / totalMemory) * 100,
+        heapUsed: memoryUsage.heapUsed,
+        heapTotal: memoryUsage.heapTotal
       },
-      process: {
-        pid: process.pid,
-        uptime: process.uptime(),
-        memoryUsage,
-        cpuUsage
+      disk: {
+        used: 0, // Would need platform-specific implementation
+        free: 0,
+        total: 0,
+        percentage: 0
+      },
+      network: {
+        bytesIn: 0, // Would need to track from network interfaces
+        bytesOut: 0,
+        connectionsActive: 0 // Would need to track active connections
       }
     };
   }
 
-  /**
-   * Get historical system metrics
-   */
-  getSystemMetricsHistory(timeWindow?: number): SystemMetrics[] {
-    if (!timeWindow) {
-      return [...this.systemMetrics];
-    }
-
-    const cutoffTime = new Date(Date.now() - timeWindow);
-    return this.systemMetrics.filter(m => m.timestamp >= cutoffTime);
+  // CPU usage calculation
+  private async getCpuUsage(): Promise<number> {
+    return new Promise((resolve) => {
+      const startMeasure = this.cpuAverage();
+      
+      setTimeout(() => {
+        const endMeasure = this.cpuAverage();
+        const idleDifference = endMeasure.idle - startMeasure.idle;
+        const totalDifference = endMeasure.total - startMeasure.total;
+        const percentageCPU = 100 - ~~(100 * idleDifference / totalDifference);
+        resolve(percentageCPU);
+      }, 100);
+    });
   }
 
-  /**
-   * Get performance dashboard data
-   */
-  getDashboardData(timeWindow: number = 60 * 60 * 1000): {
-    services: Record<string, ServiceMetrics>;
-    systemMetrics: SystemMetrics;
-    alerts: Alert[];
-    uptime: number;
-    overview: {
-      totalRequests: number;
-      totalErrors: number;
-      averageResponseTime: number;
-      activeServices: number;
-    };
-  } {
-    const services: Record<string, ServiceMetrics> = {};
-    const serviceNames = this.getServices();
+  private cpuAverage(): { idle: number; total: number } {
+    const os = require('os');
+    const cpus = os.cpus();
     
-    let totalRequests = 0;
-    let totalErrors = 0;
-    let totalResponseTime = 0;
-    let totalResponseCount = 0;
-
-    for (const service of serviceNames) {
-      const metrics = this.getServiceMetrics(service, timeWindow);
-      services[service] = metrics;
-      
-      totalRequests += metrics.totalRequests;
-      totalErrors += metrics.failedRequests;
-      totalResponseTime += metrics.averageResponseTime * metrics.totalRequests;
-      totalResponseCount += metrics.totalRequests;
+    let totalIdle = 0;
+    let totalTick = 0;
+    
+    for (const cpu of cpus) {
+      for (const type in cpu.times) {
+        totalTick += cpu.times[type];
+      }
+      totalIdle += cpu.times.idle;
     }
-
-    const recentAlerts = this.alerts
-      .filter(a => a.timestamp.getTime() > Date.now() - timeWindow)
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-      .slice(0, 50);
-
+    
     return {
-      services,
-      systemMetrics: this.getCurrentSystemMetrics(),
-      alerts: recentAlerts,
-      uptime: Date.now() - this.startTime.getTime(),
-      overview: {
-        totalRequests,
-        totalErrors,
-        averageResponseTime: totalResponseCount > 0 ? totalResponseTime / totalResponseCount : 0,
-        activeServices: serviceNames.length
-      }
+      idle: totalIdle / cpus.length,
+      total: totalTick / cpus.length
     };
   }
 
-  /**
-   * Add custom alert rule
-   */
-  addAlertRule(rule: Omit<AlertRule, 'id'>): string {
-    const id = `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    this.alertRules.push({ ...rule, id });
-    return id;
-  }
-
-  /**
-   * Remove alert rule
-   */
-  removeAlertRule(ruleId: string): boolean {
-    const index = this.alertRules.findIndex(r => r.id === ruleId);
-    if (index !== -1) {
-      this.alertRules.splice(index, 1);
-      return true;
+  // Get metric summary
+  getMetricSummary(name: string, labels?: Record<string, string>): MetricSummary | null {
+    const key = this.getMetricKey(name, labels);
+    const values = this.histograms.get(key);
+    
+    if (!values || values.length === 0) {
+      return null;
     }
-    return false;
+    
+    const sorted = [...values].sort((a, b) => a - b);
+    const sum = sorted.reduce((a, b) => a + b, 0);
+    
+    return {
+      count: sorted.length,
+      sum,
+      min: sorted[0],
+      max: sorted[sorted.length - 1],
+      avg: sum / sorted.length,
+      p50: this.percentile(sorted, 0.5),
+      p95: this.percentile(sorted, 0.95),
+      p99: this.percentile(sorted, 0.99)
+    };
   }
 
-  /**
-   * Get all alert rules
-   */
+  // Get service metrics
+  getServiceMetrics(serviceName: string): ServiceMetrics | null {
+    const requestsKey = this.getMetricKey('service_requests_total', { service: serviceName });
+    const errorsKey = this.getMetricKey('service_errors_total', { service: serviceName });
+    
+    const responseTimeSummary = this.getMetricSummary('service_response_time', { service: serviceName });
+    const totalRequests = this.counters.get(requestsKey) || 0;
+    const totalErrors = this.counters.get(errorsKey) || 0;
+    
+    if (!responseTimeSummary || totalRequests === 0) {
+      return null;
+    }
+    
+    // Calculate throughput (requests per second over last minute)
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    const recentMetrics = this.metrics.get(requestsKey)?.filter(m => m.timestamp.getTime() > oneMinuteAgo) || [];
+    const throughput = recentMetrics.length / 60;
+    
+    return {
+      name: serviceName,
+      responseTime: responseTimeSummary,
+      throughput,
+      errorRate: totalRequests > 0 ? (totalErrors / totalRequests) * 100 : 0,
+      availability: totalRequests > 0 ? ((totalRequests - totalErrors) / totalRequests) * 100 : 100,
+      lastUpdate: new Date()
+    };
+  }
+
+  // Alert management
+  addAlertRule(rule: AlertRule): void {
+    this.alertRules.set(rule.id, rule);
+    this.logger.info(`Alert rule added: ${rule.name}`, { rule }, 'performance-monitor');
+  }
+
+  removeAlertRule(ruleId: string): void {
+    this.alertRules.delete(ruleId);
+    this.activeAlerts.delete(ruleId);
+    this.logger.info(`Alert rule removed: ${ruleId}`, {}, 'performance-monitor');
+  }
+
   getAlertRules(): AlertRule[] {
-    return [...this.alertRules];
+    return Array.from(this.alertRules.values());
   }
 
-  /**
-   * Get recent alerts
-   */
-  getAlerts(limit: number = 100, unresolved: boolean = false): Alert[] {
-    let alerts = [...this.alerts];
-    
-    if (unresolved) {
-      alerts = alerts.filter(a => !a.resolved);
-    }
-    
-    return alerts
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-      .slice(0, limit);
+  getActiveAlerts(): Alert[] {
+    return Array.from(this.activeAlerts.values()).filter(alert => alert.status === 'firing');
   }
 
-  /**
-   * Resolve an alert
-   */
-  resolveAlert(alertId: string): boolean {
-    const alert = this.alerts.find(a => a.id === alertId);
-    if (alert && !alert.resolved) {
-      alert.resolved = true;
-      alert.resolvedAt = new Date();
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Initialize default alert rules
-   */
-  private initializeDefaultAlertRules(): void {
-    // High error rate alert
-    this.addAlertRule({
-      name: 'High Error Rate',
-      condition: (metrics) => {
-        if ('errorRate' in metrics) {
-          return metrics.errorRate > 0.1; // 10% error rate
-        }
-        return false;
-      },
-      severity: 'high',
-      cooldown: 5 * 60 * 1000, // 5 minutes
-      enabled: true
-    });
-
-    // Slow response time alert
-    this.addAlertRule({
-      name: 'Slow Response Time',
-      condition: (metrics) => {
-        if ('averageResponseTime' in metrics) {
-          return metrics.averageResponseTime > 10000; // 10 seconds
-        }
-        return false;
-      },
-      severity: 'medium',
-      cooldown: 5 * 60 * 1000,
-      enabled: true
-    });
-
-    // High memory usage alert
-    this.addAlertRule({
-      name: 'High Memory Usage',
-      condition: (metrics) => {
-        if ('memory' in metrics) {
-          return metrics.memory.usage > 90; // 90% memory usage
-        }
-        return false;
-      },
-      severity: 'high',
-      cooldown: 10 * 60 * 1000, // 10 minutes
-      enabled: true
-    });
-
-    // High CPU usage alert
-    this.addAlertRule({
-      name: 'High CPU Usage',
-      condition: (metrics) => {
-        if ('cpu' in metrics) {
-          return metrics.cpu.usage > 80; // 80% CPU usage
-        }
-        return false;
-      },
-      severity: 'medium',
-      cooldown: 10 * 60 * 1000,
-      enabled: true
-    });
-  }
-
-  /**
-   * Check alert rules against current metrics
-   */
-  private checkAlertRules(): void {
-    const now = new Date();
-    
-    // Check service metrics alerts
-    for (const service of this.getServices()) {
-      const metrics = this.getServiceMetrics(service, 5 * 60 * 1000); // Last 5 minutes
-      
-      for (const rule of this.alertRules) {
-        if (!rule.enabled) continue;
-        
-        // Check cooldown
-        if (rule.lastTriggered && 
-            now.getTime() - rule.lastTriggered.getTime() < rule.cooldown) {
-          continue;
-        }
-        
-        if (rule.condition(metrics)) {
-          this.triggerAlert(rule, `Service: ${service}`, metrics);
-        }
-      }
-    }
-    
-    // Check system metrics alerts
-    const systemMetrics = this.getCurrentSystemMetrics();
-    for (const rule of this.alertRules) {
+  // Check alerts
+  private checkAlerts(): void {
+    for (const rule of this.alertRules.values()) {
       if (!rule.enabled) continue;
       
-      if (rule.lastTriggered && 
-          now.getTime() - rule.lastTriggered.getTime() < rule.cooldown) {
-        continue;
-      }
-      
-      if (rule.condition(systemMetrics)) {
-        this.triggerAlert(rule, 'System', systemMetrics);
-      }
-    }
-  }
-
-  /**
-   * Trigger an alert
-   */
-  private triggerAlert(rule: AlertRule, context: string, data: any): void {
-    const alertId = `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    const alert: Alert = {
-      id: alertId,
-      ruleId: rule.id,
-      timestamp: new Date(),
-      severity: rule.severity,
-      message: `${rule.name} - ${context}`,
-      data,
-      resolved: false
-    };
-    
-    this.alerts.push(alert);
-    rule.lastTriggered = new Date();
-    
-    // Trim alerts if we exceed the limit
-    if (this.alerts.length > this.maxAlertsHistory) {
-      this.alerts = this.alerts.slice(-this.maxAlertsHistory);
-    }
-    
-    console.warn(`ALERT [${rule.severity.toUpperCase()}]: ${alert.message}`);
-  }
-
-  /**
-   * Calculate CPU usage percentage
-   */
-  private calculateCpuUsage(cpuUsage: NodeJS.CpuUsage): number {
-    // This is a simplified calculation
-    // In a real implementation, you would track CPU usage over time
-    const totalUsage = cpuUsage.user + cpuUsage.system;
-    return Math.min(100, (totalUsage / 1000000) * 100); // Convert microseconds to percentage
-  }
-
-  /**
-   * Start system metrics collection
-   */
-  private startSystemMetricsCollection(): void {
-    this.metricsCollectionInterval = setInterval(() => {
-      const systemMetrics = this.getCurrentSystemMetrics();
-      this.systemMetrics.push(systemMetrics);
-      
-      // Trim system metrics if we exceed the limit
-      if (this.systemMetrics.length > this.maxSystemMetricsHistory) {
-        this.systemMetrics = this.systemMetrics.slice(-this.maxSystemMetricsHistory);
-      }
-    }, 30000); // Collect every 30 seconds
-  }
-
-  /**
-   * Start persistence
-   */
-  private startPersistence(): void {
-    this.persistenceInterval = setInterval(() => {
-      this.persistData().catch(error => {
-        console.error('Failed to persist performance data:', error);
-      });
-    }, 5 * 60 * 1000); // Persist every 5 minutes
-  }
-
-  /**
-   * Persist data to disk
-   */
-  private async persistData(): Promise<void> {
-    if (!this.persistencePath) return;
-
-    try {
-      const data = {
-        metrics: this.metrics.slice(-1000), // Keep last 1000 metrics
-        systemMetrics: this.systemMetrics.slice(-100), // Keep last 100 system metrics
-        alerts: this.alerts.slice(-100), // Keep last 100 alerts
-        alertRules: this.alertRules,
-        startTime: this.startTime,
-        timestamp: new Date()
-      };
-
-      const dir = path.dirname(this.persistencePath);
-      await fs.mkdir(dir, { recursive: true });
-
-      const tempPath = `${this.persistencePath}.tmp`;
-      await fs.writeFile(tempPath, JSON.stringify(data, null, 2));
-      await fs.rename(tempPath, this.persistencePath);
-
-      console.log('Performance data persisted successfully');
-    } catch (error) {
-      console.error('Failed to persist performance data:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Load persisted data from disk
-   */
-  private async loadPersistedData(): Promise<void> {
-    if (!this.persistencePath) return;
-
-    try {
-      const data = await fs.readFile(this.persistencePath, 'utf8');
-      const parsedData = JSON.parse(data);
-
-      // Restore metrics
-      if (parsedData.metrics) {
-        this.metrics = parsedData.metrics.map((m: any) => ({
-          ...m,
-          timestamp: new Date(m.timestamp)
-        }));
-      }
-
-      // Restore system metrics
-      if (parsedData.systemMetrics) {
-        this.systemMetrics = parsedData.systemMetrics.map((m: any) => ({
-          ...m,
-          timestamp: new Date(m.timestamp)
-        }));
-      }
-
-      // Restore alerts
-      if (parsedData.alerts) {
-        this.alerts = parsedData.alerts.map((a: any) => ({
-          ...a,
-          timestamp: new Date(a.timestamp),
-          resolvedAt: a.resolvedAt ? new Date(a.resolvedAt) : undefined
-        }));
-      }
-
-      // Restore alert rules
-      if (parsedData.alertRules) {
-        this.alertRules = parsedData.alertRules.map((r: any) => ({
-          ...r,
-          lastTriggered: r.lastTriggered ? new Date(r.lastTriggered) : undefined
-        }));
-      }
-
-      // Restore start time
-      if (parsedData.startTime) {
-        this.startTime = new Date(parsedData.startTime);
-      }
-
-      console.log('Performance data loaded successfully');
-    } catch (error) {
-      if ((error as any).code === 'ENOENT') {
-        console.log('No persisted performance data found, starting fresh');
-      } else {
-        console.error('Failed to load persisted performance data:', error);
-        throw error;
-      }
-    }
-  }
-
-  /**
-   * Shutdown the performance monitor
-   */
-  async shutdown(): Promise<void> {
-    console.log('Performance monitor shutting down...');
-
-    // Stop intervals
-    if (this.metricsCollectionInterval) {
-      clearInterval(this.metricsCollectionInterval);
-      this.metricsCollectionInterval = undefined;
-    }
-
-    if (this.persistenceInterval) {
-      clearInterval(this.persistenceInterval);
-      this.persistenceInterval = undefined;
-    }
-
-    // Final persistence
-    if (this.enablePersistence && this.persistencePath) {
       try {
-        await this.persistData();
-        console.log('Final performance data persistence completed');
+        this.checkAlertRule(rule);
       } catch (error) {
-        console.error('Failed to persist performance data during shutdown:', error);
+        this.logger.error(`Failed to check alert rule: ${rule.name}`, error as Error, { rule }, 'performance-monitor');
       }
     }
+  }
 
-    console.log('Performance monitor shutdown complete');
+  private checkAlertRule(rule: AlertRule): void {
+    const currentValue = this.getCurrentMetricValue(rule.metric, rule.labels);
+    if (currentValue === null) return;
+    
+    const shouldFire = this.evaluateCondition(currentValue, rule.condition, rule.threshold);
+    const existingAlert = this.activeAlerts.get(rule.id);
+    
+    if (shouldFire && !existingAlert) {
+      // Fire new alert
+      const alert: Alert = {
+        id: rule.id,
+        rule,
+        value: currentValue,
+        timestamp: new Date(),
+        status: 'firing',
+        message: `${rule.name}: ${rule.metric} is ${currentValue} (threshold: ${rule.threshold})`
+      };
+      
+      this.activeAlerts.set(rule.id, alert);
+      this.emit('alert', alert);
+      this.logger.warn(`Alert fired: ${rule.name}`, { alert }, 'performance-monitor');
+      
+    } else if (!shouldFire && existingAlert && existingAlert.status === 'firing') {
+      // Resolve alert
+      existingAlert.status = 'resolved';
+      existingAlert.timestamp = new Date();
+      
+      this.emit('alertResolved', existingAlert);
+      this.logger.info(`Alert resolved: ${rule.name}`, { alert: existingAlert }, 'performance-monitor');
+    }
+  }
+
+  private getCurrentMetricValue(metricName: string, labels?: Record<string, string>): number | null {
+    const key = this.getMetricKey(metricName, labels);
+    
+    // Try gauge first
+    if (this.gauges.has(key)) {
+      return this.gauges.get(key)!;
+    }
+    
+    // Try counter
+    if (this.counters.has(key)) {
+      return this.counters.get(key)!;
+    }
+    
+    // Try histogram (use latest value)
+    const histogramValues = this.histograms.get(key);
+    if (histogramValues && histogramValues.length > 0) {
+      return histogramValues[histogramValues.length - 1];
+    }
+    
+    return null;
+  }
+
+  private evaluateCondition(value: number, condition: string, threshold: number): boolean {
+    switch (condition) {
+      case 'gt': return value > threshold;
+      case 'gte': return value >= threshold;
+      case 'lt': return value < threshold;
+      case 'lte': return value <= threshold;
+      case 'eq': return value === threshold;
+      default: return false;
+    }
+  }
+
+  // Utility methods
+  private recordMetric(name: string, value: number, labels?: Record<string, string>): void {
+    const key = this.getMetricKey(name, labels);
+    const metrics = this.metrics.get(key) || [];
+    
+    metrics.push({
+      value,
+      timestamp: new Date(),
+      labels
+    });
+    
+    this.metrics.set(key, metrics);
+  }
+
+  private getMetricKey(name: string, labels?: Record<string, string>): string {
+    if (!labels || Object.keys(labels).length === 0) {
+      return name;
+    }
+    
+    const labelString = Object.entries(labels)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}="${value}"`)
+      .join(',');
+    
+    return `${name}{${labelString}}`;
+  }
+
+  private percentile(sortedArray: number[], p: number): number {
+    const index = Math.ceil(sortedArray.length * p) - 1;
+    return sortedArray[Math.max(0, index)];
+  }
+
+  private cleanupOldMetrics(): void {
+    const cutoff = Date.now() - this.metricsRetentionMs;
+    let cleanedCount = 0;
+    
+    for (const [key, metrics] of this.metrics.entries()) {
+      const filtered = metrics.filter(m => m.timestamp.getTime() > cutoff);
+      
+      if (filtered.length !== metrics.length) {
+        this.metrics.set(key, filtered);
+        cleanedCount += metrics.length - filtered.length;
+      }
+    }
+    
+    // Also cleanup histogram data
+    for (const [key, values] of this.histograms.entries()) {
+      if (values.length > 10000) { // Keep only last 10k values
+        this.histograms.set(key, values.slice(-10000));
+        cleanedCount += values.length - 10000;
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      this.logger.debug(`Cleaned up ${cleanedCount} old metrics`, {}, 'performance-monitor');
+    }
+  }
+
+  // Get all metrics for export/dashboard
+  getAllMetrics(): {
+    counters: Record<string, number>;
+    gauges: Record<string, number>;
+    histograms: Record<string, MetricSummary>;
+  } {
+    const counters: Record<string, number> = {};
+    const gauges: Record<string, number> = {};
+    const histograms: Record<string, MetricSummary> = {};
+    
+    for (const [key, value] of this.counters.entries()) {
+      counters[key] = value;
+    }
+    
+    for (const [key, value] of this.gauges.entries()) {
+      gauges[key] = value;
+    }
+    
+    for (const [key, values] of this.histograms.entries()) {
+      if (values.length > 0) {
+        const sorted = [...values].sort((a, b) => a - b);
+        const sum = sorted.reduce((a, b) => a + b, 0);
+        
+        histograms[key] = {
+          count: sorted.length,
+          sum,
+          min: sorted[0],
+          max: sorted[sorted.length - 1],
+          avg: sum / sorted.length,
+          p50: this.percentile(sorted, 0.5),
+          p95: this.percentile(sorted, 0.95),
+          p99: this.percentile(sorted, 0.99)
+        };
+      }
+    }
+    
+    return { counters, gauges, histograms };
+  }
+
+  private shutdown(): void {
+    clearInterval(this.cleanupInterval);
+    clearInterval(this.resourceMonitorInterval);
+    clearInterval(this.alertCheckInterval);
+    this.logger.info('PerformanceMonitor shutdown complete', {}, 'performance-monitor');
   }
 }
 
-// Global performance monitor instance
-export const globalPerformanceMonitor = new PerformanceMonitor({
-  maxMetricsHistory: 10000,
-  maxSystemMetricsHistory: 1000,
-  maxAlertsHistory: 1000,
-  persistencePath: path.join(process.cwd(), 'temp', 'performance-data.json'),
-  enablePersistence: true
-});
+// Singleton instance
+let performanceMonitorInstance: PerformanceMonitor | null = null;
+
+export function createPerformanceMonitor(): PerformanceMonitor {
+  if (performanceMonitorInstance) {
+    return performanceMonitorInstance;
+  }
+  
+  performanceMonitorInstance = new PerformanceMonitor();
+  return performanceMonitorInstance;
+}
+
+export function getPerformanceMonitor(): PerformanceMonitor {
+  if (!performanceMonitorInstance) {
+    throw new Error('PerformanceMonitor not initialized. Call createPerformanceMonitor() first.');
+  }
+  return performanceMonitorInstance;
+}
+
+// For testing purposes
+export function resetPerformanceMonitor(): void {
+  if (performanceMonitorInstance) {
+    performanceMonitorInstance['shutdown']();
+  }
+  performanceMonitorInstance = null;
+}
+
+export { PerformanceMonitor };

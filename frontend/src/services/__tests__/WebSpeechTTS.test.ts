@@ -209,7 +209,9 @@ describe('WebSpeechTTS', () => {
         }, 10);
       });
 
-      await ttsService.synthesizeSpeech(text, { voice: 'Voice 2' });
+      // Create a new service instance after setting up the mock voices
+      const newTtsService = new WebSpeechTTS();
+      await newTtsService.synthesizeSpeech(text, { voice: 'Voice 2' });
       
       expect(capturedUtterance.voice).toBe(mockVoices[1]);
     });
@@ -227,7 +229,7 @@ describe('WebSpeechTTS', () => {
       });
 
       await expect(ttsService.synthesizeSpeech(text)).rejects.toThrow(
-        `Speech synthesis error: ${errorMessage}`
+        'Не удалось синтезировать речь'
       );
     });
 
@@ -404,7 +406,7 @@ describe('WebSpeechTTS', () => {
       });
 
       await expect(ttsService.synthesizeSpeech(text)).rejects.toThrow(
-        'Speech synthesis error: synthesis-unavailable'
+        'Сервис синтеза речи недоступен'
       );
     });
 
@@ -420,7 +422,7 @@ describe('WebSpeechTTS', () => {
       });
 
       await expect(ttsService.synthesizeSpeech(text)).rejects.toThrow(
-        'Speech synthesis error: network'
+        'Ошибка сети при синтезе речи'
       );
     });
 
@@ -597,7 +599,7 @@ describe('WebSpeechTTS', () => {
 
       // First attempt should fail
       await expect(ttsService.synthesizeSpeech(text)).rejects.toThrow(
-        'Speech synthesis error: temporary-failure'
+        'Ошибка синтеза речи: temporary-failure'
       );
 
       // Second attempt should succeed

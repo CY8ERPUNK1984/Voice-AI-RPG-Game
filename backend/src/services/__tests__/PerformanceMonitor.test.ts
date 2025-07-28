@@ -1,296 +1,326 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { PerformanceMonitor } from '../PerformanceMonitor';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import { 
+  PerformanceMonitor, 
+  createPerformanceMonitor, 
+  getPerformanceMonitor, 
+  resetPerformanceMonitor,
+  AlertRule,
+  Alert
+} from '../PerformanceMonitor';
+import { createLogger } from '../Logger';
+
+// Mock the logger
+vi.mock('../Logger', () => ({
+  getLogger: vi.fn(() => ({
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn()
+  })),
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn()
+  }))
+}));
 
 describe('PerformanceMonitor', () => {
   let monitor: PerformanceMonitor;
-  let testPersistencePath: string;
 
   beforeEach(() => {
-    testPersistencePath = path.join(process.cwd(), 'temp', 'test-performance.json');
-    monitor = new PerformanceMonitor({
-      maxMetricsHistory: 100,
-      maxSystemMetricsHistory: 50,
-      maxAlertsHistory: 50,
-      persistencePath: testPersistencePath,
-      enablePersistence: false // Disable for most tests
+    // Create logger first
+    createLogger({
+      level: 'debug',
+      service: 'test-service',
+      enableConsole: false,
+      enableFile: false
     });
-  });
-
-  afterEach(async () => {
-    await monitor.shutdown();
     
-    // Cleanup test files
-    try {
-      await fs.unlink(testPersistencePath);
-    } catch (error) {
-      // File might not exist, ignore
-    }
+    resetPerformanceMonitor();
+    monitor = createPerformanceMonitor();
   });
 
-  describe('metric recording', () => {
-    it('should record performance metrics', () => {
-      monitor.recordMetric('test-service', 'test-operation', 100, true);
+  afterEach(() => {
+    resetPerformanceMonitor();
+    vi.clearAllMocks();
+  });
+
+  describe('Counter Metrics', () => {
+    it('should increment counter metrics', () => {
+      monitor.incrementCounter('test_counter', 5);
+      monitor.incrementCounter('test_counter', 3);
       
-      const metrics = monitor.getServiceMetrics('test-service');
-      
-      expect(metrics.totalRequests).toBe(1);
-      expect(metrics.successfulRequests).toBe(1);
-      expect(metrics.failedRequests).toBe(0);
-      expect(metrics.averageResponseTime).toBe(100);
-      expect(metrics.errorRate).toBe(0);
+      const metrics = monitor.getAllMetrics();
+      expect(metrics.counters['test_counter']).toBe(8);
     });
 
-    it('should record failed metrics', () => {
-      monitor.recordMetric('test-service', 'test-operation', 200, false, 'Test error');
+    it('should handle counter metrics with labels', () => {
+      monitor.incrementCounter('requests_total', 1, { method: 'GET', status: '200' });
+      monitor.incrementCounter('requests_total', 1, { method: 'POST', status: '201' });
+      monitor.incrementCounter('requests_total', 1, { method: 'GET', status: '200' });
       
-      const metrics = monitor.getServiceMetrics('test-service');
+      const metrics = monitor.getAllMetrics();
+      expect(metrics.counters['requests_total{method="GET",status="200"}']).toBe(2);
+      expect(metrics.counters['requests_total{method="POST",status="201"}']).toBe(1);
+    });
+  });
+
+  describe('Gauge Metrics', () => {
+    it('should set gauge metrics', () => {
+      monitor.setGauge('cpu_usage', 75.5);
+      monitor.setGauge('cpu_usage', 80.2);
       
-      expect(metrics.totalRequests).toBe(1);
-      expect(metrics.successfulRequests).toBe(0);
-      expect(metrics.failedRequests).toBe(1);
-      expect(metrics.averageResponseTime).toBe(200);
-      expect(metrics.errorRate).toBe(1);
+      const metrics = monitor.getAllMetrics();
+      expect(metrics.gauges['cpu_usage']).toBe(80.2);
+    });
+
+    it('should handle gauge metrics with labels', () => {
+      monitor.setGauge('memory_usage', 1024, { type: 'heap' });
+      monitor.setGauge('memory_usage', 2048, { type: 'rss' });
+      
+      const metrics = monitor.getAllMetrics();
+      expect(metrics.gauges['memory_usage{type="heap"}']).toBe(1024);
+      expect(metrics.gauges['memory_usage{type="rss"}']).toBe(2048);
+    });
+  });
+
+  describe('Histogram Metrics', () => {
+    it('should record histogram metrics', () => {
+      monitor.recordHistogram('response_time', 100);
+      monitor.recordHistogram('response_time', 200);
+      monitor.recordHistogram('response_time', 150);
+      
+      const summary = monitor.getMetricSummary('response_time');
+      expect(summary).toBeDefined();
+      expect(summary!.count).toBe(3);
+      expect(summary!.min).toBe(100);
+      expect(summary!.max).toBe(200);
+      expect(summary!.avg).toBe(150);
     });
 
     it('should calculate percentiles correctly', () => {
-      // Record multiple metrics with different durations
-      const durations = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-      
-      for (const duration of durations) {
-        monitor.recordMetric('test-service', 'test-operation', duration, true);
+      // Add 100 values from 1 to 100
+      for (let i = 1; i <= 100; i++) {
+        monitor.recordHistogram('test_metric', i);
       }
       
-      const metrics = monitor.getServiceMetrics('test-service');
-      
-      expect(metrics.totalRequests).toBe(10);
-      expect(metrics.minResponseTime).toBe(10);
-      expect(metrics.maxResponseTime).toBe(100);
-      expect(metrics.averageResponseTime).toBe(55);
-      expect(metrics.p95ResponseTime).toBeGreaterThan(80);
-      expect(metrics.p99ResponseTime).toBeGreaterThan(90);
+      const summary = monitor.getMetricSummary('test_metric');
+      expect(summary).toBeDefined();
+      expect(summary!.p50).toBe(50);
+      expect(summary!.p95).toBe(95);
+      expect(summary!.p99).toBe(99);
     });
   });
 
-  describe('timer functionality', () => {
-    it('should measure operation duration with timer', async () => {
-      const timer = monitor.startTimer('timer-service', 'timer-operation');
+  describe('Timer Functionality', () => {
+    it('should measure execution time with timer', async () => {
+      const endTimer = monitor.startTimer('operation_duration');
       
       // Simulate some work
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      const duration = timer.end(true);
-      
-      expect(duration).toBeGreaterThan(40);
-      expect(duration).toBeLessThan(100);
-      
-      const metrics = monitor.getServiceMetrics('timer-service');
-      expect(metrics.totalRequests).toBe(1);
-      expect(metrics.successfulRequests).toBe(1);
-    });
-
-    it('should handle timer with error', async () => {
-      const timer = monitor.startTimer('timer-service', 'timer-operation');
-      
       await new Promise(resolve => setTimeout(resolve, 10));
       
-      timer.end(false, 'Timer error');
+      const duration = endTimer();
+      expect(duration).toBeGreaterThan(0);
       
-      const metrics = monitor.getServiceMetrics('timer-service');
-      expect(metrics.totalRequests).toBe(1);
-      expect(metrics.failedRequests).toBe(1);
-      expect(metrics.errorRate).toBe(1);
+      const summary = monitor.getMetricSummary('operation_duration');
+      expect(summary).toBeDefined();
+      expect(summary!.count).toBe(1);
+      expect(summary!.min).toBeGreaterThan(0);
+    });
+
+    it('should time async operations', async () => {
+      const result = await monitor.timeAsync('async_operation', async () => {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        return 'test_result';
+      });
+      
+      expect(result).toBe('test_result');
+      
+      const summary = monitor.getMetricSummary('async_operation');
+      expect(summary).toBeDefined();
+      expect(summary!.count).toBe(1);
+    });
+
+    it('should handle errors in timed async operations', async () => {
+      await expect(
+        monitor.timeAsync('failing_operation', async () => {
+          throw new Error('Test error');
+        })
+      ).rejects.toThrow('Test error');
+      
+      const metrics = monitor.getAllMetrics();
+      expect(metrics.counters['failing_operation_errors']).toBe(1);
     });
   });
 
-  describe('service metrics', () => {
-    it('should return empty metrics for non-existent service', () => {
-      const metrics = monitor.getServiceMetrics('non-existent');
+  describe('Service Metrics', () => {
+    it('should record service metrics', () => {
+      monitor.recordServiceMetrics('api_service', 150, true);
+      monitor.recordServiceMetrics('api_service', 200, true);
+      monitor.recordServiceMetrics('api_service', 300, false);
       
-      expect(metrics.totalRequests).toBe(0);
-      expect(metrics.successfulRequests).toBe(0);
-      expect(metrics.failedRequests).toBe(0);
-      expect(metrics.averageResponseTime).toBe(0);
-      expect(metrics.errorRate).toBe(0);
-    });
-
-    it('should filter metrics by time window', async () => {
-      // Record old metric
-      monitor.recordMetric('test-service', 'old-operation', 100, true);
-      
-      // Wait a bit
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
-      monitor.recordMetric('test-service', 'new-operation', 200, true);
-      
-      // Get metrics for last 5ms (should only include new metric)
-      const metrics = monitor.getServiceMetrics('test-service', 5);
-      expect(metrics.totalRequests).toBeLessThanOrEqual(2); // Could be 1 or 2 depending on timing
-      
-      // Get all metrics (no time window)
-      const allMetrics = monitor.getServiceMetrics('test-service');
-      expect(allMetrics.totalRequests).toBe(2);
-    });
-
-    it('should list all services with metrics', () => {
-      monitor.recordMetric('service-1', 'operation', 100, true);
-      monitor.recordMetric('service-2', 'operation', 200, true);
-      monitor.recordMetric('service-1', 'operation', 150, true);
-      
-      const services = monitor.getServices();
-      
-      expect(services).toContain('service-1');
-      expect(services).toContain('service-2');
-      expect(services).toHaveLength(2);
+      const serviceMetrics = monitor.getServiceMetrics('api_service');
+      expect(serviceMetrics).toBeDefined();
+      expect(serviceMetrics!.name).toBe('api_service');
+      expect(serviceMetrics!.responseTime.count).toBe(3);
+      expect(serviceMetrics!.errorRate).toBeCloseTo(33.33, 1);
+      expect(serviceMetrics!.availability).toBeCloseTo(66.67, 1);
     });
   });
 
-  describe('system metrics', () => {
-    it('should collect current system metrics', () => {
-      const systemMetrics = monitor.getCurrentSystemMetrics();
-      
-      expect(systemMetrics.timestamp).toBeInstanceOf(Date);
-      expect(systemMetrics.cpu).toBeDefined();
-      expect(systemMetrics.memory).toBeDefined();
-      expect(systemMetrics.process).toBeDefined();
-      
-      expect(systemMetrics.memory.total).toBeGreaterThan(0);
-      expect(systemMetrics.memory.usage).toBeGreaterThanOrEqual(0);
-      expect(systemMetrics.memory.usage).toBeLessThanOrEqual(100);
-      
-      expect(systemMetrics.process.pid).toBe(process.pid);
-      expect(systemMetrics.process.uptime).toBeGreaterThan(0);
-    });
-
-    it('should return system metrics history', () => {
-      const history = monitor.getSystemMetricsHistory();
-      
-      // Should be empty initially (collection happens on interval)
-      expect(Array.isArray(history)).toBe(true);
-    });
-  });
-
-  describe('dashboard data', () => {
-    it('should provide comprehensive dashboard data', () => {
-      // Add some test data
-      monitor.recordMetric('service-1', 'operation-1', 100, true);
-      monitor.recordMetric('service-1', 'operation-2', 200, false, 'Error');
-      monitor.recordMetric('service-2', 'operation-1', 150, true);
-      
-      const dashboard = monitor.getDashboardData();
-      
-      expect(dashboard.services).toBeDefined();
-      expect(dashboard.systemMetrics).toBeDefined();
-      expect(dashboard.alerts).toBeDefined();
-      expect(dashboard.uptime).toBeGreaterThanOrEqual(0);
-      expect(dashboard.overview).toBeDefined();
-      
-      expect(dashboard.overview.totalRequests).toBe(3);
-      expect(dashboard.overview.totalErrors).toBe(1);
-      expect(dashboard.overview.activeServices).toBe(2);
-      expect(dashboard.overview.averageResponseTime).toBeGreaterThan(0);
-    });
-  });
-
-  describe('alert system', () => {
+  describe('Alert System', () => {
     it('should add and remove alert rules', () => {
-      const ruleId = monitor.addAlertRule({
-        name: 'Test Rule',
-        condition: () => true,
-        severity: 'medium',
-        cooldown: 1000,
+      const rule: AlertRule = {
+        id: 'high_cpu',
+        name: 'High CPU Usage',
+        metric: 'cpu_usage',
+        condition: 'gt',
+        threshold: 80,
+        duration: 60,
         enabled: true
-      });
+      };
       
-      expect(ruleId).toBeDefined();
+      monitor.addAlertRule(rule);
       
       const rules = monitor.getAlertRules();
-      expect(rules.some(r => r.id === ruleId)).toBe(true);
+      expect(rules).toHaveLength(1);
+      expect(rules[0].id).toBe('high_cpu');
       
-      const removed = monitor.removeAlertRule(ruleId);
-      expect(removed).toBe(true);
-      
-      const rulesAfter = monitor.getAlertRules();
-      expect(rulesAfter.some(r => r.id === ruleId)).toBe(false);
+      monitor.removeAlertRule('high_cpu');
+      expect(monitor.getAlertRules()).toHaveLength(0);
     });
 
-    it('should have default alert rules', () => {
-      const rules = monitor.getAlertRules();
+    it('should fire alerts when conditions are met', () => {
+      return new Promise<void>((done) => {
+      const rule: AlertRule = {
+        id: 'test_alert',
+        name: 'Test Alert',
+        metric: 'test_gauge',
+        condition: 'gt',
+        threshold: 50,
+        duration: 1,
+        enabled: true
+      };
       
-      expect(rules.length).toBeGreaterThan(0);
-      expect(rules.some(r => r.name === 'High Error Rate')).toBe(true);
-      expect(rules.some(r => r.name === 'Slow Response Time')).toBe(true);
-      expect(rules.some(r => r.name === 'High Memory Usage')).toBe(true);
-      expect(rules.some(r => r.name === 'High CPU Usage')).toBe(true);
-    });
-
-    it('should get and resolve alerts', () => {
-      // This test would require triggering alerts, which is complex
-      // For now, just test the basic functionality
-      const alerts = monitor.getAlerts();
-      expect(Array.isArray(alerts)).toBe(true);
+      monitor.addAlertRule(rule);
       
-      const unresolved = monitor.getAlerts(10, true);
-      expect(Array.isArray(unresolved)).toBe(true);
-    });
-  });
-
-  describe('persistence', () => {
-    it('should persist and load data', async () => {
-      const persistentMonitor = new PerformanceMonitor({
-        persistencePath: testPersistencePath,
-        enablePersistence: true
+      monitor.on('alert', (alert: Alert) => {
+        expect(alert.rule.id).toBe('test_alert');
+        expect(alert.status).toBe('firing');
+        expect(alert.value).toBe(75);
+        done();
       });
       
-      try {
-        // Add some data
-        persistentMonitor.recordMetric('persist-service', 'persist-operation', 100, true);
+      // Set gauge above threshold
+      monitor.setGauge('test_gauge', 75);
+      
+      // Trigger alert check manually
+      monitor['checkAlerts']();
+      });
+    });
+
+    it('should resolve alerts when conditions are no longer met', () => {
+      return new Promise<void>((done) => {
+        const rule: AlertRule = {
+          id: 'test_resolve',
+          name: 'Test Resolve',
+          metric: 'test_gauge_resolve',
+          condition: 'gt',
+          threshold: 50,
+          duration: 1,
+          enabled: true
+        };
         
-        // Force persistence
-        await persistentMonitor.shutdown();
+        monitor.addAlertRule(rule);
         
-        // Create new monitor and check if data was loaded
-        const newMonitor = new PerformanceMonitor({
-          persistencePath: testPersistencePath,
-          enablePersistence: true
+        let alertFired = false;
+        
+        monitor.on('alert', () => {
+          alertFired = true;
+          // Lower the value to resolve the alert
+          monitor.setGauge('test_gauge_resolve', 30);
+          monitor['checkAlerts']();
         });
         
-        try {
-          // Wait a bit for loading
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          const services = newMonitor.getServices();
-          expect(services).toContain('persist-service');
-        } finally {
-          await newMonitor.shutdown();
-        }
-      } finally {
-        await persistentMonitor.shutdown();
-      }
+        monitor.on('alertResolved', (alert: Alert) => {
+          expect(alertFired).toBe(true);
+          expect(alert.status).toBe('resolved');
+          done();
+        });
+        
+        // Set gauge above threshold to fire alert
+        monitor.setGauge('test_gauge_resolve', 75);
+        monitor['checkAlerts']();
+      });
     });
   });
 
-  describe('memory management', () => {
-    it('should limit metrics history', () => {
-      const smallMonitor = new PerformanceMonitor({
-        maxMetricsHistory: 5
-      });
+  describe('Metric Key Generation', () => {
+    it('should generate consistent metric keys', () => {
+      const key1 = monitor['getMetricKey']('test_metric', { a: '1', b: '2' });
+      const key2 = monitor['getMetricKey']('test_metric', { b: '2', a: '1' });
       
-      try {
-        // Add more metrics than the limit
-        for (let i = 0; i < 10; i++) {
-          smallMonitor.recordMetric('test-service', 'operation', i * 10, true);
-        }
-        
-        const metrics = smallMonitor.getServiceMetrics('test-service');
-        
-        // Should only have the last 5 metrics
-        expect(metrics.totalRequests).toBe(5);
-        expect(metrics.minResponseTime).toBe(50); // Should be from the last 5 metrics
-      } finally {
-        smallMonitor.shutdown();
-      }
+      expect(key1).toBe(key2);
+      expect(key1).toBe('test_metric{a="1",b="2"}');
+    });
+
+    it('should handle metrics without labels', () => {
+      const key = monitor['getMetricKey']('simple_metric');
+      expect(key).toBe('simple_metric');
+    });
+  });
+
+  describe('Condition Evaluation', () => {
+    it('should evaluate different conditions correctly', () => {
+      expect(monitor['evaluateCondition'](75, 'gt', 50)).toBe(true);
+      expect(monitor['evaluateCondition'](25, 'gt', 50)).toBe(false);
+      
+      expect(monitor['evaluateCondition'](50, 'gte', 50)).toBe(true);
+      expect(monitor['evaluateCondition'](49, 'gte', 50)).toBe(false);
+      
+      expect(monitor['evaluateCondition'](25, 'lt', 50)).toBe(true);
+      expect(monitor['evaluateCondition'](75, 'lt', 50)).toBe(false);
+      
+      expect(monitor['evaluateCondition'](50, 'lte', 50)).toBe(true);
+      expect(monitor['evaluateCondition'](51, 'lte', 50)).toBe(false);
+      
+      expect(monitor['evaluateCondition'](50, 'eq', 50)).toBe(true);
+      expect(monitor['evaluateCondition'](51, 'eq', 50)).toBe(false);
+    });
+  });
+
+  describe('Singleton Pattern', () => {
+    it('should return the same instance', () => {
+      const monitor1 = getPerformanceMonitor();
+      const monitor2 = getPerformanceMonitor();
+      
+      expect(monitor1).toBe(monitor2);
+    });
+
+    it('should throw error when not initialized', () => {
+      resetPerformanceMonitor();
+      
+      expect(() => getPerformanceMonitor()).toThrow(
+        'PerformanceMonitor not initialized. Call createPerformanceMonitor() first.'
+      );
+    });
+  });
+
+  describe('Metrics Export', () => {
+    it('should export all metrics correctly', () => {
+      monitor.incrementCounter('test_counter', 5);
+      monitor.setGauge('test_gauge', 42);
+      monitor.recordHistogram('test_histogram', 100);
+      monitor.recordHistogram('test_histogram', 200);
+      
+      const allMetrics = monitor.getAllMetrics();
+      
+      expect(allMetrics.counters['test_counter']).toBe(5);
+      expect(allMetrics.gauges['test_gauge']).toBe(42);
+      expect(allMetrics.histograms['test_histogram']).toBeDefined();
+      expect(allMetrics.histograms['test_histogram'].count).toBe(2);
+      expect(allMetrics.histograms['test_histogram'].avg).toBe(150);
     });
   });
 });

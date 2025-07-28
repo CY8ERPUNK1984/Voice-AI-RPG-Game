@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice AI RPG - Быстрый старт</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #3b82f6;
+            text-align: center;
+        }
+        .story-card {
+            background: #2d2d2d;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .story-card:hover {
+            background: #3d3d3d;
+            border-color: #666;
+        }
+        .genre-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .fantasy { background: #8b5cf6; }
+        .sci-fi { background: #3b82f6; }
+        .mystery { background: #6b7280; }
+        .adventure { background: #10b981; }
+        .horror { background: #ef4444; }
+        .story-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .story-desc {
+            color: #ccc;
+            line-height: 1.5;
+        }
+        .play-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        .play-btn:hover {
+            background: #2563eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Voice AI RPG Game - Быстрый старт</h1>
+        <p style="text-align: center; color: #ccc;">Выберите сценарий для начала игры</p>
+        
+        <div class="story-card" onclick="startGame('fantasy-dragon-quest')">
+            <div class="genre-badge fantasy">Фэнтези</div>
+            <div class="story-title">Поиск Древнего Дракона</div>
+            <div class="story-desc">
+                Вы - молодой авантюрист в мире магии и чудес. Древние легенды говорят о могущественном драконе, который охраняет сокровища в заброшенной башне.
+            </div>
+            <button class="play-btn">Начать приключение</button>
+        </div>
+
+        <div class="story-card" onclick="startGame('scifi-space-station')">
+            <div class="genre-badge sci-fi">Научная фантастика</div>
+            <div class="story-title">Станция 'Новая Надежда'</div>
+            <div class="story-desc">
+                2387 год. Вы - инженер на космической станции, которая внезапно потеряла связь с Землей. Системы станции начинают отказывать одна за другой.
+            </div>
+            <button class="play-btn">Начать приключение</button>
+        </div>
+
+        <div class="story-card" onclick="startGame('mystery-mansion')">
+            <div class="genre-badge mystery">Детектив</div>
+            <div class="story-title">Тайна Особняка Блэквуд</div>
+            <div class="story-desc">
+                Вы - частный детектив, приглашенный в старинный особняк для расследования загадочного исчезновения наследника.
+            </div>
+            <button class="play-btn">Начать приключение</button>
+        </div>
+
+        <div class="story-card" onclick="startGame('adventure-pirate-treasure')">
+            <div class="genre-badge adventure">Приключения</div>
+            <div class="story-title">Сокровища Капитана Морганса</div>
+            <div class="story-desc">
+                Карибские острова, 1715 год. Вы - молодой пират с картой сокровищ легендарного капитана. Но вы не единственный охотник за кладом.
+            </div>
+            <button class="play-btn">Начать приключение</button>
+        </div>
+
+        <div class="story-card" onclick="startGame('horror-abandoned-hospital')">
+            <div class="genre-badge horror">Хоррор</div>
+            <div class="story-title">Заброшенная Больница Святой Марии</div>
+            <div class="story-desc">
+                Вы - журналист-расследователь, который решил провести ночь в заброшенной больнице для написания статьи о паранормальных явлениях.
+            </div>
+            <button class="play-btn">Начать приключение</button>
+        </div>
+    </div>
+
+    <script>
+        function startGame(storyId) {
+            // Попробуем открыть основное приложение с выбранной историей
+            window.location.href = `http://localhost:3000?story=${storyId}`;
+        }
+    </script>
+</body>
+</html>

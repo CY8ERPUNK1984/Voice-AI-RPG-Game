@@ -2,6 +2,28 @@
 
 🎮 An interactive voice-controlled role-playing game that combines AI-powered storytelling with real-time voice interaction.
 
+## ⚠️ PROJECT STATUS: NOT WORKING - REQUIRES DEBUGGING
+
+**This project is currently in a non-functional state and requires debugging and fixes before it can be used.**
+
+### Known Issues:
+- Voice recognition and TTS integration may not work properly
+- WebSocket connections may be unstable
+- AI service integrations need configuration and testing
+- Some components may have runtime errors
+- Environment setup and API keys need proper configuration
+
+### Development Status:
+- ✅ Basic project structure is complete
+- ✅ Frontend and backend scaffolding is in place
+- ✅ TypeScript configuration and build system working
+- ❌ Voice features need debugging and testing
+- ❌ AI service integrations require fixes
+- ❌ End-to-end functionality needs validation
+- ❌ Production deployment not ready
+
+**Please expect to spend time debugging and fixing issues before the application will work as intended.**
+
 ## ✨ Features
 
 - **🎙️ Voice-Controlled Gameplay**: Use speech-to-text (ASR) for natural game interaction
@@ -12,6 +34,7 @@
 - **🎛️ Customizable Settings**: Adjust audio, voice speed, and sensitivity
 - **🌐 Cross-Platform**: Works on desktop and mobile browsers
 - **♿ Accessibility**: Full keyboard navigation, screen reader support, and ARIA labels
+- **🌙 Dark Theme UI**: Modern dark interface optimized for immersive gaming experience
 
 ## 🚀 Quick Start
 
@@ -113,7 +136,7 @@ The application features a robust connection management system with comprehensiv
 ### Frontend (React + TypeScript)
 - **React 18** with modern hooks and concurrent features
 - **Vite** for lightning-fast development and builds
-- **Tailwind CSS** for responsive, utility-first styling
+- **Tailwind CSS** for responsive, utility-first styling with dark theme implementation
 - **React Context API** for centralized application state management with AppContext
 - **Zustand** for lightweight component-level state management
 - **Socket.io Client** with enhanced ConnectionManager for reliable real-time communication
@@ -122,6 +145,7 @@ The application features a robust connection management system with comprehensiv
 - **Modern React patterns** with proper event handling and state management
 - **Robust connection management** with automatic reconnection and health monitoring
 - **Enhanced UI components** with progress indicators, loading states, and real-time feedback
+- **Story Selection Interface** with genre filtering, search functionality, and immersive dark theme
 
 ### Backend (Node.js + TypeScript)
 - **Express** server with TypeScript
@@ -133,51 +157,202 @@ The application features a robust connection management system with comprehensiv
 - **Advanced Connection Management**: Real-time health monitoring, timeout detection, and quality assessment
 - **Session Persistence**: File-based session persistence for automatic recovery across server restarts and connection drops
 - **Session Health Monitoring**: Real-time session metrics tracking with memory usage and activity monitoring
+- **Structured Logging System**: Multi-level logging with request tracking, performance metrics, and automatic log rotation
 - **Graceful Shutdown**: Proper cleanup procedures with client notification
-- **Performance Monitoring**: Connection metrics, error tracking, and server health statistics
+- **Performance Monitoring**: Prometheus-style metrics collection with counters, gauges, and histograms
+- **Alert System**: Configurable threshold-based alerting with real-time notifications
+- **Resource Monitoring**: Automatic CPU, memory, and system resource tracking
 - **Robust Testing Suite**: Comprehensive test coverage for all services with proper mocking and error simulation
 
-### Session Management & Monitoring
+### Performance Monitoring and Metrics System
 
-The application features comprehensive session management with advanced monitoring and persistence capabilities:
+The application features a comprehensive performance monitoring system built on modern observability principles:
 
-#### Session Health Monitoring
-- **Real-time Metrics**: Track memory usage, message counts, and activity per session
-- **Health Assessment**: Automatic evaluation of session health based on resource usage and activity
-- **Performance Tracking**: Monitor session duration, response times, and resource consumption
-- **Automatic Cleanup**: Remove unhealthy or inactive sessions to maintain optimal performance
+#### PerformanceMonitor Service
+- **Prometheus-style Metrics**: Counter, gauge, and histogram metrics with label support
+- **Real-time Collection**: Automatic system resource monitoring (CPU, memory, network)
+- **Event-driven Architecture**: EventEmitter-based alert system with configurable rules
+- **Singleton Pattern**: Global performance monitor instance with proper lifecycle management
+- **Automatic Cleanup**: Time-based metric retention and memory management
 
-#### Session Persistence
-- **File-based Storage**: Sessions persist across server restarts using JSON file storage
-- **Automatic Recovery**: Sessions automatically restore after server downtime or crashes
-- **Data Integrity**: Comprehensive session data including context, messages, and user preferences
-- **Backup & Restore**: Reliable session state management with timestamp tracking
-
-#### Session Metrics
-- **Active Session Tracking**: Real-time count of active game sessions
-- **Resource Monitoring**: Memory usage and message count per session
-- **Performance Analytics**: Average session duration and activity patterns
-- **Health Statistics**: Distribution of healthy vs. unhealthy sessions
-
-#### Session Types & Interfaces
+#### Metric Types & Usage
 ```typescript
-interface SessionMetrics {
-  activeSessions: number;
-  totalSessions: number;
-  averageSessionDuration: number;
-  memoryUsage: number;
-  messageCount: number;
-  lastCleanup: Date;
-}
+// Counter metrics (monotonically increasing)
+monitor.incrementCounter('requests_total', 1, { method: 'GET', status: '200' });
 
-interface SessionHealth {
-  sessionId: string;
-  memoryUsage: number;
-  messageCount: number;
-  lastActivity: Date;
-  isHealthy: boolean;
+// Gauge metrics (can go up or down)
+monitor.setGauge('cpu_usage_percent', 75.5);
+
+// Histogram metrics (for response times, percentiles)
+monitor.recordHistogram('response_time_ms', 150, { service: 'api' });
+
+// Timer utilities for measuring durations
+const endTimer = monitor.startTimer('operation_duration');
+// ... perform operation
+const duration = endTimer();
+
+// Async operation timing with error tracking
+const result = await monitor.timeAsync('async_operation', async () => {
+  return await someAsyncOperation();
+});
+```
+
+#### Service Metrics & Health Monitoring
+- **Service Performance Tracking**: Response times, throughput, error rates, and availability
+- **Automatic Health Assessment**: Real-time service health evaluation based on metrics
+- **Resource Monitoring**: System CPU, memory, disk, and network usage tracking
+- **Performance Summaries**: Statistical analysis with percentiles (p50, p95, p99)
+
+#### Alert System
+- **Configurable Alert Rules**: Threshold-based alerting with multiple condition types
+- **Real-time Notifications**: Event-driven alert firing and resolution
+- **Alert Management**: Add, remove, and configure alert rules dynamically
+- **Status Tracking**: Active alert monitoring with automatic resolution
+
+```typescript
+// Add alert rule
+const rule: AlertRule = {
+  id: 'high_cpu',
+  name: 'High CPU Usage',
+  metric: 'cpu_usage_percent',
+  condition: 'gt',
+  threshold: 80,
+  duration: 60,
+  enabled: true
+};
+monitor.addAlertRule(rule);
+
+// Listen for alerts
+monitor.on('alert', (alert: Alert) => {
+  console.log(`Alert fired: ${alert.message}`);
+});
+```
+
+#### Monitoring Dashboard Integration
+- **Real-time Dashboard**: React-based monitoring interface with auto-refresh
+- **System Overview**: Service status, resource usage, and alert summaries
+- **Visual Indicators**: Color-coded status indicators and progress bars
+- **Historical Data**: Metric trends and performance analytics
+
+### Structured Logging System
+
+The application features a comprehensive structured logging system designed for production monitoring and debugging:
+
+#### Logger Features
+- **Multi-Level Logging**: Support for debug, info, warn, error, and fatal log levels
+- **Structured JSON Output**: Consistent log format with contextual information and metadata
+- **Request Tracking**: Automatic request ID correlation across service calls
+- **Performance Monitoring**: Built-in duration tracking and memory usage reporting
+- **File Management**: Automatic log rotation, cleanup, and configurable file size limits
+- **Buffer Management**: Efficient log buffering with periodic flushing to prevent I/O blocking
+- **Graceful Shutdown**: Proper log flushing and cleanup on application termination
+
+#### Log Entry Structure
+```typescript
+interface LogEntry {
+  id: string;                    // Unique log entry identifier
+  timestamp: string;             // ISO timestamp
+  level: LogLevel;               // Log severity level
+  service: string;               // Service name (e.g., 'voice-ai-rpg')
+  component: string;             // Component/module name
+  message: string;               // Human-readable message
+  error?: {                      // Error details (if applicable)
+    name: string;
+    message: string;
+    stack?: string;
+  };
+  context: Record<string, any>;  // Additional contextual data
+  userId?: string;               // User identifier
+  sessionId?: string;            // Game session identifier
+  requestId?: string;            // Request correlation ID
+  duration?: number;             // Operation duration (ms)
+  memoryUsage?: NodeJS.MemoryUsage; // Memory usage snapshot
 }
 ```
+
+#### Logger Configuration
+```typescript
+interface LoggerConfig {
+  level: LogLevel;               // Minimum log level to output
+  service: string;               // Service identifier
+  logFile?: string;              // Log file name (optional)
+  maxFileSize?: number;          // Max file size before rotation (bytes)
+  maxFiles?: number;             // Number of rotated files to keep
+  enableConsole?: boolean;       // Enable console output
+  enableFile?: boolean;          // Enable file output
+  enableStructured?: boolean;    // Enable structured JSON logging
+}
+```
+
+#### Usage Examples
+```typescript
+import { createLogger, getLogger } from '@/services/Logger';
+
+// Initialize logger (typically in main application file)
+const logger = createLogger({
+  level: 'info',
+  service: 'voice-ai-rpg',
+  logFile: 'app.log',
+  maxFileSize: 10 * 1024 * 1024, // 10MB
+  maxFiles: 5
+});
+
+// Use logger throughout the application
+const logger = getLogger();
+
+// Basic logging
+logger.info('User started new game session', { userId: 'user123' });
+logger.error('OpenAI API request failed', error, { endpoint: '/chat' });
+
+// Performance logging
+logger.logPerformance('LLM Response Generation', 1250, { 
+  model: 'gpt-4', 
+  tokens: 150 
+});
+
+// Request logging (automatic in middleware)
+logger.logRequest('POST', '/api/game/action', 200, 850, { 
+  sessionId: 'session456' 
+});
+
+// Business event logging
+logger.logEvent('story_selected', { 
+  storyId: 'fantasy-adventure', 
+  userId: 'user123' 
+});
+
+// Request context tracking
+logger.setRequestId('req-789');
+logger.info('Processing user action'); // Automatically includes request ID
+logger.clearRequestId();
+```
+
+#### Log Management Features
+- **Automatic Rotation**: Files rotate when they exceed the configured size limit
+- **Cleanup**: Old log files are automatically removed based on retention policy
+- **Search Functionality**: Built-in log search capabilities for debugging
+- **Buffer Flushing**: Logs are buffered and flushed periodically for performance
+- **Graceful Shutdown**: Ensures all logs are written before application termination
+
+#### Monitoring and Metrics
+```typescript
+// Get logger statistics
+const stats = logger.getStats();
+console.log({
+  bufferSize: stats.bufferSize,
+  memoryUsage: stats.memoryUsage
+});
+
+// Search logs for debugging
+const errorLogs = await logger.searchLogs('OpenAI API', 'error', 50);
+console.log('Recent API errors:', errorLogs);
+```
+
+#### Log File Structure
+- **Primary Log**: `logs/app.log` - Current active log file
+- **Rotated Logs**: `logs/app.log.1`, `logs/app.log.2`, etc. - Historical log files
+- **JSON Format**: Each line is a complete JSON object for easy parsing and analysis
+- **Automatic Cleanup**: Old files are removed based on `maxFiles` configuration
 
 ### State Management
 
@@ -225,11 +400,67 @@ function GameComponent() {
 Lightweight state management for component-specific state that doesn't need global access.
 
 ### AI Services Integration
-- **ASR**: Web Speech API (primary) + OpenAI Whisper (fallback) with enhanced audio quality settings
+- **ASR**: Web Speech API + OpenAI Whisper with advanced audio optimization
+  - **Audio Preprocessing Pipeline**: Compression, silence trimming, noise reduction, and volume normalization
+  - **Intelligent Audio Analysis**: Duration validation, format detection, and quality assessment
+  - **Buffer Pool Management**: Efficient memory usage with reusable audio buffers
+  - **Chunked Processing**: Support for large audio files with automatic chunking
   - Echo cancellation, noise suppression, and auto gain control
   - Optimized 16kHz sample rate for speech recognition
 - **LLM**: OpenAI GPT-4 for game master responses
 - **TTS**: Web Speech API (primary) + OpenAI TTS (premium)
+
+### Audio Optimization System
+
+The WhisperASR service includes a comprehensive audio optimization pipeline designed to improve transcription accuracy and reduce API costs:
+
+#### Audio Preprocessing Features
+- **Compression**: Intelligent audio compression with configurable target bitrate (default: 64 kbps for speech)
+- **Silence Trimming**: Automatic removal of silence from beginning and end of audio recordings
+- **Noise Reduction**: Optional noise reduction processing for cleaner audio input
+- **Volume Normalization**: Automatic volume level adjustment for consistent audio processing
+- **Duration Limits**: Configurable maximum audio duration (default: 5 minutes)
+- **Format Validation**: Audio format detection and validation before processing
+
+#### Performance Optimizations
+- **Buffer Pool Management**: Reusable audio buffer pool to reduce memory allocation overhead with configurable pool size
+- **Chunked Processing**: Support for large audio files with automatic chunking for files exceeding size limits
+- **Audio Analysis**: Real-time audio metadata extraction including duration, sample rate, and format detection
+- **Compression Metrics**: Detailed compression statistics and processing time tracking
+- **Service Statistics**: Comprehensive stats tracking including buffer pool usage, health status, and configuration settings
+- **Maintenance Operations**: Automatic buffer cleanup and health status recovery with detailed reporting
+
+#### Configuration Options
+```typescript
+// Audio optimization settings
+const audioOptimization = {
+  enableCompression: true,        // Enable audio compression
+  targetBitrate: 64,             // Target bitrate in kbps
+  maxDuration: 300,              // Maximum duration in seconds
+  enableSilenceTrimming: true,   // Remove silence from audio
+  enableNoiseReduction: false,  // Apply noise reduction (requires additional libraries)
+  enableVolumeNormalization: false // Normalize audio volume levels
+};
+
+// Configure WhisperASR with optimization settings
+whisperASR.configureAudioOptimization(audioOptimization);
+
+// Get current optimization settings
+const currentSettings = whisperASR.getAudioOptimizationSettings();
+
+// Get service statistics
+const stats = whisperASR.getStats();
+console.log({
+  model: stats.model,
+  healthStatus: stats.healthStatus,
+  bufferPoolSize: stats.bufferPoolSize,
+  audioOptimization: stats.audioOptimization
+});
+
+// Perform maintenance operations
+const maintenanceResult = await whisperASR.performMaintenance();
+console.log(`Cleared ${maintenanceResult.buffersCleared} buffers`);
+```
 
 ## 📁 Project Structure
 
@@ -238,9 +469,15 @@ voice-ai-rpg-game/
 ├── 📁 frontend/              # React application
 │   ├── 📁 src/
 │   │   ├── 📁 components/    # React components
+│   │   │   ├── StorySelector.tsx     # Enhanced story selection with dark theme
+│   │   │   ├── ChatInterface.tsx     # Voice-enabled chat interface
+│   │   │   ├── VoiceInput.tsx        # Voice recording component
+│   │   │   ├── AudioPlayer.tsx       # TTS audio playback
+│   │   │   └── __tests__/            # Component tests
 │   │   ├── 📁 contexts/      # React Context providers (AppContext)
 │   │   ├── 📁 services/      # API clients & integrations
 │   │   ├── 📁 types/         # TypeScript definitions
+│   │   ├── 📁 data/          # Story data (stories.json)
 │   │   └── 📁 utils/         # Utility functions
 │   └── 📁 dist/             # Built frontend
 ├── 📁 backend/               # Node.js server
@@ -252,22 +489,42 @@ voice-ai-rpg-game/
 │   │   │   ├── OpenAITTS.ts          # TTS with fallback handling
 │   │   │   ├── WebSocketServer.ts    # Enhanced connection management
 │   │   │   ├── GameSessionManager.ts # Session management with health monitoring
-│   │   │   └── PerformanceMonitor.ts # Performance metrics and monitoring
+│   │   │   ├── Logger.ts             # Structured logging with rotation and metrics
+│   │   │   └── PerformanceMonitor.ts # Prometheus-style metrics and alerting system
 │   │   ├── 📁 data/          # Story data
 │   │   └── 📁 types/         # TypeScript definitions
 │   └── 📁 dist/             # Built backend
 ├── 📁 e2e/                  # End-to-end tests
+├── 📁 logs/                 # Application logs (auto-generated)
 ├── 📁 .kiro/specs/          # Project specifications
 └── 📄 Documentation files
 ```
 
 ## 🎮 How to Play
 
-1. **Choose Your Adventure**: Select from available story scenarios
+1. **Choose Your Adventure**: Select from available story scenarios using the enhanced story selector
 2. **Voice Interaction**: Click the microphone and speak your actions
 3. **AI Responses**: The AI game master responds with voice and text
 4. **Customize Experience**: Adjust audio settings to your preference
 5. **Explore & Enjoy**: Use natural language to interact with the game world
+
+### Story Selection Interface
+
+The StorySelector component provides an intuitive way to browse and select game scenarios:
+
+- **🔍 Search Functionality**: Find stories by title or description
+- **🏷️ Genre Filtering**: Filter by fantasy, sci-fi, mystery, adventure, or horror
+- **🌙 Dark Theme**: Immersive dark interface optimized for gaming
+- **📱 Responsive Design**: Works seamlessly on desktop and mobile devices
+- **⚡ Real-time Filtering**: Instant search results and genre filtering
+- **📊 Story Counter**: Shows filtered results count for better navigation
+
+#### Available Story Genres
+- **Fantasy** (Фэнтези): Magical worlds with dragons, wizards, and ancient mysteries
+- **Sci-Fi** (Научная фантастика): Futuristic space stations and technological challenges  
+- **Mystery** (Детектив): Detective stories with puzzles and hidden clues
+- **Adventure** (Приключения): Pirate adventures and treasure hunting
+- **Horror** (Хоррор): Psychological thriller experiences in abandoned locations
 
 ### Application State Management
 
@@ -362,6 +619,14 @@ RATE_LIMIT_CHAT_RPM=60
 RATE_LIMIT_TTS_RPM=50
 RATE_LIMIT_WHISPER_RPM=50
 RATE_LIMIT_BURST_MULTIPLIER=0.2
+
+# Logging Configuration (optional - defaults provided)
+LOG_LEVEL=info
+LOG_FILE=app.log
+LOG_MAX_FILE_SIZE=10485760
+LOG_MAX_FILES=5
+LOG_ENABLE_CONSOLE=true
+LOG_ENABLE_FILE=true
 ```
 
 #### Frontend (.env)
@@ -370,6 +635,67 @@ VITE_API_BASE_URL=http://localhost:3001
 VITE_SOCKET_URL=http://localhost:3001
 VITE_ENABLE_VOICE_FEATURES=true
 ```
+
+## 📊 Monitoring API
+
+The application provides comprehensive monitoring endpoints for system health and performance metrics:
+
+### Health Check Endpoints
+```bash
+GET /api/health              # System health overview
+GET /api/health/detailed     # Detailed health information
+```
+
+### Monitoring Dashboard Endpoints
+```bash
+GET /api/monitoring/dashboard    # Dashboard overview data
+GET /api/monitoring/metrics      # All performance metrics
+GET /api/monitoring/alerts       # Active alerts
+GET /api/monitoring/services     # Service health status
+```
+
+### Metrics Collection
+The PerformanceMonitor automatically collects:
+- **System Metrics**: CPU usage, memory consumption, load averages
+- **Service Metrics**: Response times, throughput, error rates, availability
+- **Application Metrics**: Request counts, session metrics, connection health
+- **Custom Metrics**: Business-specific counters, gauges, and histograms
+
+### Alert Configuration
+```typescript
+// Example alert rule configuration
+const alertRule = {
+  id: 'high_memory_usage',
+  name: 'High Memory Usage',
+  metric: 'system_memory_usage_percent',
+  condition: 'gt',
+  threshold: 85,
+  duration: 300, // 5 minutes
+  enabled: true
+};
+```
+
+## 🆕 Recent Updates
+
+### UI/UX Improvements
+- **Dark Theme Implementation**: StorySelector component now features a modern dark theme for better immersion
+- **Enhanced Visual Hierarchy**: Improved contrast and readability with gray-800 backgrounds and white text
+- **Interactive Elements**: Hover effects and border transitions for better user feedback
+- **Genre Badge Styling**: Color-coded genre badges with improved visibility in dark theme
+- **Responsive Grid Layout**: Optimized story card layout for different screen sizes
+
+### Component Enhancements
+- **StorySelector Component**: 
+  - Migrated to dark theme with proper color contrast
+  - Fixed TypeScript readonly array compatibility
+  - Enhanced accessibility with proper ARIA labels
+  - Improved loading states with skeleton loaders
+  - Real-time search and filtering functionality
+
+### Technical Improvements
+- **Type Safety**: Enhanced TypeScript strict typing for readonly arrays
+- **Performance**: Optimized component re-rendering with proper state management
+- **Code Quality**: Improved component structure and maintainability
 
 ## 🧪 Testing
 
@@ -411,11 +737,14 @@ npm run test:e2e         # End-to-end tests
 
 ### Backend Service Testing
 - **OpenAI Service Tests**: Comprehensive testing of LLM, TTS, and Whisper ASR services with proper mocking and error simulation
+- **Audio Optimization Testing**: Complete validation of WhisperASR audio preprocessing pipeline including compression, silence trimming, and buffer pool management
 - **Rate Limiter Tests**: Token bucket algorithm, request queuing, priority handling, and metrics tracking validation
 - **WebSocket Server Tests**: Connection management, message processing, and LLM integration with proper TypeScript interfaces
 - **Integration Tests**: WebSocketLLMIntegration tests with complete message flow validation and context management
 - **Error Recovery Tests**: Fallback mechanisms, timeout handling, and service degradation scenarios
 - **Health Check Tests**: Service availability monitoring and automatic recovery validation
+- **Performance Monitor Tests**: Comprehensive testing of metrics collection, alert system, and resource monitoring
+- **Singleton Pattern Tests**: Proper instance management and lifecycle testing for monitoring services
 - **TypeScript Compliance**: All test files now have proper type definitions and interface implementations
 
 ### Rate Limiting Monitoring
@@ -518,8 +847,17 @@ npm run start
 - **Performance Optimization**: Session cleanup, request caching, and audio processing improvements
 - **UI/UX Enhancements**: Advanced progress tracking and visual feedback improvements
 
+### ✅ Recently Completed (Phase 11-12)
+- **Structured Logging System**: Comprehensive logging service with multiple levels, request tracking, and file rotation
+- **Performance Monitoring System**: Complete Prometheus-style metrics collection with counters, gauges, and histograms
+- **Alert System**: Configurable threshold-based alerting with real-time event notifications
+- **Resource Monitoring**: Automatic CPU, memory, and system resource tracking with health assessment
+- **Monitoring Dashboard**: React-based real-time monitoring interface with auto-refresh and visual indicators
+- **Metrics API**: RESTful endpoints for dashboard data, system health, and active alerts
+- **Log Management**: Automatic log rotation, cleanup, and structured JSON logging with contextual information
+
 ### 📋 Planned (Phase 7-12)
-- **Monitoring & Logging**: Structured logging system and performance metrics collection
+- **Monitoring Dashboard**: Real-time monitoring interface and health check endpoints
 - **Code Quality**: Architecture refactoring and TypeScript improvements
 - **Final Testing**: End-to-end testing and quality assurance
 
@@ -554,6 +892,10 @@ npm run start
 - **Service Resilience Testing**: Comprehensive error recovery scenarios, concurrent request handling, and runtime availability validation
 - **Audio Quality Enhancement**: Updated HybridASR tests to validate enhanced audio constraints with echo cancellation, noise suppression, and optimized sample rates
 - **AppContext State Management**: Implemented centralized React Context API with reducer pattern for application-wide state management
+- **Structured Logging System**: Comprehensive logging service with multi-level logging, request tracking, performance metrics, and automatic file rotation
+- **Log Management**: Built-in log rotation, cleanup, search functionality, and structured JSON output for production monitoring
+- **Request Correlation**: Automatic request ID tracking across service calls for better debugging and monitoring
+- **Performance Logging**: Built-in duration tracking and memory usage reporting for all operations
 - Fixed Socket.io integration between frontend and backend
 - Resolved TypeScript compatibility issues with Socket.io types
 - Improved error handling for real-time message processing
@@ -612,6 +954,15 @@ We welcome contributions! Please see our contributing guidelines:
 - Monitor memory usage for long sessions
 - Check rate limiter metrics for API bottlenecks
 - Review request queue sizes during peak usage
+- Check application logs for performance bottlenecks: `tail -f logs/app.log`
+- Monitor log buffer size and memory usage with logger statistics
+
+**Logging and debugging issues?**
+- Check log files in the `logs/` directory for detailed error information
+- Adjust log level in environment variables for more detailed output
+- Use log search functionality to find specific errors or events
+- Monitor log file rotation and cleanup for disk space management
+- Review structured log entries for request correlation and performance metrics
 
 **Test failures or development issues?**
 - All major backend and frontend tests are now passing

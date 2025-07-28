@@ -6,6 +6,7 @@ import { GameInterface } from './components/GameInterface';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/ToastNotification';
 import { ScreenReaderAnnouncer } from './components/ScreenReaderAnnouncer';
+import MonitoringDashboard from './components/MonitoringDashboard';
 
 // Context Providers
 import { AppProvider, useApp } from './contexts/AppContext';
@@ -27,6 +28,14 @@ function AppContent() {
   const { stories, storiesLoading } = useStories();
   const errorState = useErrorState();
   const offlineMode = useOfflineMode();
+
+  // Check if monitoring dashboard should be shown
+  const urlParams = new URLSearchParams(window.location.search);
+  const showMonitoring = urlParams.get('monitoring') === 'true';
+
+  if (showMonitoring) {
+    return <MonitoringDashboard />;
+  }
 
   const handleStorySelect = (story: Story) => {
     setCurrentStory(story);

@@ -30,7 +30,7 @@ describe('TypingIndicator', () => {
   it('has correct structure', () => {
     render(<TypingIndicator />);
     const container = screen.getByText('ИИ печатает').parentElement;
-    expect(container).toHaveClass('flex', 'items-center', 'space-x-2');
+    expect(container).toHaveClass('flex', 'items-center', 'space-x-3');
     
     const dotsContainer = container?.querySelector('.flex.space-x-1');
     expect(dotsContainer).toBeInTheDocument();

@@ -3,16 +3,19 @@ import { TTSIntegration } from '../TTSIntegration';
 import { AudioSettings } from '@/types';
 
 // Mock WebSpeechTTS
+const mockTTSService = {
+  synthesizeSpeech: vi.fn().mockResolvedValue('Speech synthesis completed'),
+  isAvailable: vi.fn().mockReturnValue(true),
+  getAvailableVoices: vi.fn().mockResolvedValue([]),
+  stop: vi.fn(),
+  isSpeaking: vi.fn().mockReturnValue(false),
+  pause: vi.fn(),
+  resume: vi.fn(),
+  assessTTSQuality: vi.fn().mockReturnValue({ quality: 'good', latency: 100 })
+};
+
 vi.mock('../WebSpeechTTS', () => ({
-  WebSpeechTTS: vi.fn().mockImplementation(() => ({
-    synthesizeSpeech: vi.fn().mockResolvedValue('Speech synthesis completed'),
-    isAvailable: vi.fn().mockReturnValue(true),
-    getAvailableVoices: vi.fn().mockResolvedValue([]),
-    stop: vi.fn(),
-    isSpeaking: vi.fn().mockReturnValue(false),
-    pause: vi.fn(),
-    resume: vi.fn()
-  }))
+  WebSpeechTTS: vi.fn().mockImplementation(() => mockTTSService)
 }));
 
 describe('TTSIntegration', () => {

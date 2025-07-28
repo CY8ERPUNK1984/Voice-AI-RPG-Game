@@ -125,3 +125,37 @@ export interface GameResponse {
   message: Message;
   audioUrl?: string;
 }
+
+// Logging interfaces
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  level: LogLevel;
+  service: string;
+  component: string;
+  message: string;
+  error?: {
+    name: string;
+    message: string;
+    stack?: string;
+  };
+  context: Record<string, any>;
+  userId?: string;
+  sessionId?: string;
+  requestId?: string;
+  duration?: number;
+  memoryUsage?: NodeJS.MemoryUsage;
+}
+
+export interface LoggerConfig {
+  level: LogLevel;
+  service: string;
+  logFile?: string;
+  maxFileSize?: number;
+  maxFiles?: number;
+  enableConsole?: boolean;
+  enableFile?: boolean;
+  enableStructured?: boolean;
+}

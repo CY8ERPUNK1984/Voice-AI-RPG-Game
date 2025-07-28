@@ -424,12 +424,7 @@ export class ErrorHandler {
   }
 
 
-}
-
-// Export singleton instance
-export const errorHandler = ErrorHandler.getInstance();
-  
-/**
+  /**
    * Utility methods for common async operations with consistent error handling
    */
   public readonly asyncUtils = {
@@ -541,4 +536,7 @@ export const errorHandler = ErrorHandler.getInstance();
   public cleanupGlobalHandlers(): void {
     window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
     window.removeEventListener('error', this.handleUncaughtError);
-  }
+  }}
+
+// Export singleton instance
+export const errorHandler = ErrorHandler.getInstance();

@@ -11,7 +11,7 @@ describe('ServiceFallback', () => {
   it('should render service name and basic fallback UI', () => {
     render(<ServiceFallback serviceName="Test Service" />);
 
-    expect(screen.getByText('Test Service Unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Test Service недоступен')).toBeInTheDocument();
   });
 
   it('should display error message when provided', () => {
@@ -41,10 +41,11 @@ describe('ServiceFallback', () => {
       <ServiceFallback 
         serviceName="Test Service" 
         onRetry={onRetry}
+        showRecoveryActions={false}
       />
     );
 
-    fireEvent.click(screen.getByText('Try Again'));
+    fireEvent.click(screen.getByText('Попробовать снова'));
     expect(onRetry).toHaveBeenCalled();
   });
 
@@ -60,8 +61,8 @@ describe('VoiceInputFallback', () => {
     const onTextInput = vi.fn();
     render(<VoiceInputFallback onTextInput={onTextInput} />);
 
-    expect(screen.getByText('Voice input unavailable')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Type your message here...')).toBeInTheDocument();
+    expect(screen.getByText('Голосовой ввод недоступен')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Введите ваше сообщение здесь...')).toBeInTheDocument();
   });
 
   it('should display error message when provided', () => {
@@ -80,8 +81,8 @@ describe('VoiceInputFallback', () => {
     const onTextInput = vi.fn();
     render(<VoiceInputFallback onTextInput={onTextInput} />);
 
-    const input = screen.getByPlaceholderText('Type your message here...');
-    const sendButton = screen.getByText('Send');
+    const input = screen.getByPlaceholderText('Введите ваше сообщение здесь...');
+    const sendButton = screen.getByText('Отправить');
 
     fireEvent.change(input, { target: { value: 'Test message' } });
     fireEvent.click(sendButton);
@@ -93,8 +94,8 @@ describe('VoiceInputFallback', () => {
     const onTextInput = vi.fn();
     render(<VoiceInputFallback onTextInput={onTextInput} />);
 
-    const input = screen.getByPlaceholderText('Type your message here...') as HTMLInputElement;
-    const sendButton = screen.getByText('Send');
+    const input = screen.getByPlaceholderText('Введите ваше сообщение здесь...') as HTMLInputElement;
+    const sendButton = screen.getByText('Отправить');
 
     fireEvent.change(input, { target: { value: 'Test message' } });
     fireEvent.click(sendButton);
@@ -106,7 +107,7 @@ describe('VoiceInputFallback', () => {
     const onTextInput = vi.fn();
     render(<VoiceInputFallback onTextInput={onTextInput} />);
 
-    const sendButton = screen.getByText('Send');
+    const sendButton = screen.getByText('Отправить');
     expect(sendButton).toBeDisabled();
   });
 
@@ -114,8 +115,8 @@ describe('VoiceInputFallback', () => {
     const onTextInput = vi.fn();
     render(<VoiceInputFallback onTextInput={onTextInput} />);
 
-    const input = screen.getByPlaceholderText('Type your message here...');
-    const sendButton = screen.getByText('Send');
+    const input = screen.getByPlaceholderText('Введите ваше сообщение здесь...');
+    const sendButton = screen.getByText('Отправить');
 
     fireEvent.change(input, { target: { value: 'Test' } });
     expect(sendButton).not.toBeDisabled();
@@ -131,7 +132,7 @@ describe('VoiceInputFallback', () => {
       />
     );
 
-    fireEvent.click(screen.getByText('Try Voice Input Again'));
+    fireEvent.click(screen.getByText('Попробовать голосовой ввод снова'));
     expect(onRetryVoice).toHaveBeenCalled();
   });
 
@@ -139,14 +140,14 @@ describe('VoiceInputFallback', () => {
     const onTextInput = vi.fn();
     render(<VoiceInputFallback onTextInput={onTextInput} />);
 
-    expect(screen.queryByText('Try Voice Input Again')).not.toBeInTheDocument();
+    expect(screen.queryByText('Попробовать голосовой ввод снова')).not.toBeInTheDocument();
   });
 
   it('should submit form on Enter key press', () => {
     const onTextInput = vi.fn();
     render(<VoiceInputFallback onTextInput={onTextInput} />);
 
-    const input = screen.getByPlaceholderText('Type your message here...');
+    const input = screen.getByPlaceholderText('Введите ваше сообщение здесь...');
     
     fireEvent.change(input, { target: { value: 'Test message' } });
     fireEvent.submit(input.closest('form')!);
@@ -159,7 +160,7 @@ describe('TTSFallback', () => {
   it('should render TTS fallback with text', () => {
     render(<TTSFallback text="Hello world" />);
 
-    expect(screen.getByText('Audio unavailable - Text only')).toBeInTheDocument();
+    expect(screen.getByText('Аудио недоступно - только текст')).toBeInTheDocument();
     expect(screen.getByText('Hello world')).toBeInTheDocument();
   });
 
@@ -172,14 +173,14 @@ describe('TTSFallback', () => {
       />
     );
 
-    fireEvent.click(screen.getByText('Retry Audio'));
+    fireEvent.click(screen.getByText('Повторить аудио'));
     expect(onRetryTTS).toHaveBeenCalled();
   });
 
   it('should not render retry button when onRetryTTS is not provided', () => {
     render(<TTSFallback text="Hello world" />);
 
-    expect(screen.queryByText('Retry Audio')).not.toBeInTheDocument();
+    expect(screen.queryByText('Повторить аудио')).not.toBeInTheDocument();
   });
 });
 
@@ -187,15 +188,15 @@ describe('ConnectionFallback', () => {
   it('should render connection error UI', () => {
     render(<ConnectionFallback />);
 
-    expect(screen.getByText('Connection Lost')).toBeInTheDocument();
-    expect(screen.getByText(/Unable to connect to the game server/)).toBeInTheDocument();
+    expect(screen.getByText('Соединение потеряно')).toBeInTheDocument();
+    expect(screen.getByText(/Не удается подключиться к игровому серверу/)).toBeInTheDocument();
   });
 
   it('should call onRetry when reconnect button is clicked', () => {
     const onRetry = vi.fn();
     render(<ConnectionFallback onRetry={onRetry} />);
 
-    fireEvent.click(screen.getByText('Reconnect'));
+    fireEvent.click(screen.getByText('Переподключиться'));
     expect(onRetry).toHaveBeenCalled();
   });
 
@@ -203,22 +204,22 @@ describe('ConnectionFallback', () => {
     const onRetry = vi.fn();
     render(<ConnectionFallback onRetry={onRetry} isRetrying={true} />);
 
-    expect(screen.getByText('Reconnecting...')).toBeInTheDocument();
-    expect(screen.getByText('Reconnecting...').closest('button')).toBeDisabled();
+    expect(screen.getByText('Переподключение...')).toBeInTheDocument();
+    expect(screen.getByText('Переподключение...').closest('button')).toBeDisabled();
   });
 
   it('should show reconnect button when not retrying', () => {
     const onRetry = vi.fn();
     render(<ConnectionFallback onRetry={onRetry} isRetrying={false} />);
 
-    expect(screen.getByText('Reconnect')).toBeInTheDocument();
-    expect(screen.getByText('Reconnect').closest('button')).not.toBeDisabled();
+    expect(screen.getByText('Переподключиться')).toBeInTheDocument();
+    expect(screen.getByText('Переподключиться').closest('button')).not.toBeDisabled();
   });
 
   it('should not render reconnect button when onRetry is not provided', () => {
     render(<ConnectionFallback />);
 
-    expect(screen.queryByText('Reconnect')).not.toBeInTheDocument();
+    expect(screen.queryByText('Переподключиться')).not.toBeInTheDocument();
     expect(screen.queryByText('Reconnecting...')).not.toBeInTheDocument();
   });
 });
